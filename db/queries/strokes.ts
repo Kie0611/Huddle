@@ -1,4 +1,3 @@
-// db/queries/strokes.ts
 import { eq, and, gte, count } from "drizzle-orm";
 import { db } from "@/db";
 import { strokes } from "@/db/schema";
