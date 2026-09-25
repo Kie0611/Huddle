@@ -5,10 +5,10 @@ import { rooms } from "@/db/schema";
 
 export type Room = typeof rooms.$inferSelect;
 
-export async function createRoom(): Promise<Room> {
+export async function createRoom(name: string): Promise<Room> {
   const code = nanoid(8);
-
-  const [room] = await db.insert(rooms).values({ code }).returning();
+  
+  const [room] = await db.insert(rooms).values({ code, name }).returning();
   return room;
 }
 

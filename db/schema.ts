@@ -3,6 +3,7 @@ import { pgTable, integer, varchar, uuid, timestamp, jsonb } from "drizzle-orm/p
 export const rooms = pgTable("rooms", {
   id: uuid("id").defaultRandom().primaryKey(),
   code: varchar("code", { length: 12 }).notNull().unique(),
+  name: varchar("name", { length: 50 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastActiveAt: timestamp("last_active_at").defaultNow().notNull(),
 });
