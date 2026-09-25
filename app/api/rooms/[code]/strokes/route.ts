@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
 import { getStrokes, createStroke, checkRateLimit } from "@/db/queries/strokes";
+import { broadcastEvent } from "@/lib/liveblocks";
 
 const strokeSchema = z.object({
   points: z.array(z.object({ x: z.number(), y: z.number() })).min(1),
@@ -68,6 +69,15 @@ export async function POST(req: Request, { params }: Params) {
   });
 
   await touchRoom(room.id);
+
+  await broadcastEvent(code, {
+    type: "stroke:create",
+    stroke: {
+      ...stroke,
+      points: stroke.points as { x: number; y: number }[],
+      createdAt: stroke.createdAt.toISOString(),
+    },
+  });
 
   return NextResponse.json(stroke, { status: 201 })
 }

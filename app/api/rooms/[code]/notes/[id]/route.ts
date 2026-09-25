@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRoomByCode } from "@/db/queries/rooms";
 import { updateNote, deleteNote } from "@/db/queries/notes";
+import { broadcastEvent } from "@/lib/liveblocks";
 
 const patchSchema = z.object({
   text: z.string().min(1).max(280).optional(),
@@ -42,6 +43,14 @@ export async function PATCH(req: Request, { params }: Params) {
     );
   }
 
+  await broadcastEvent(code, {
+    type: "note:update",
+    note: {
+      ...note,
+      createdAt: note.createdAt.toISOString(),
+    },
+  });
+
   return NextResponse.json(note);
 }
 
@@ -71,6 +80,8 @@ export async function DELETE(req: Request, { params }: Params) {
       { status: 404 }
     );
   }
+
+  await broadcastEvent(code, { type: "note:delete", note: { id } });
 
   return new Response(null, { status: 204 });
 }

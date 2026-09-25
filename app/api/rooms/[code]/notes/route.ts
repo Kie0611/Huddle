@@ -1,5 +1,6 @@
 import { createNote, getNotes } from "@/db/queries/notes";
 import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
+import { broadcastEvent } from "@/lib/liveblocks";
 import { NextResponse } from "next/server";
 import z from "zod";
 
@@ -63,6 +64,14 @@ export async function POST(req: Request, { params }: Params) {
   });
 
   await touchRoom(room.id)
+
+  await broadcastEvent(code, {
+    type: "note:create",
+    note: {
+      ...note,
+      createdAt: note.createdAt.toISOString(),
+    },
+  });
 
   return NextResponse.json(note, { status: 201 })
 }
