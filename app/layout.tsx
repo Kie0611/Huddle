@@ -1,23 +1,44 @@
 import type { Metadata } from "next";
+import { Rubik, Space_Mono, Kalam } from "next/font/google";
+
 import "./globals.css";
 
+const rubik = Rubik({
+  subsets: ["latin"],
+  variable: "--font-rubik",
+  weight: ["400", "500", "600", "700"],
+});
+
+const spaceMono = Space_Mono({
+  subsets: ["latin"],
+  variable: "--font-space-mono",
+  weight: ["400", "700"],
+});
+
+const kalam = Kalam({
+  subsets: ["latin"],
+  variable: "--font-kalam",
+  weight: ["400", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "Huddle",
-  description: "A temporary shared canvas for quick collaboration.",
+  title: "Huddle | A playful canvas for fast collaboration",
+  description:
+    "Open a temporary Huddle canvas, share the code, and turn scattered ideas into shared direction.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Kalam:wght@400;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body>{children}</body>
+      <body
+        className={`${rubik.variable} ${spaceMono.variable} ${kalam.variable}`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

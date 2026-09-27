@@ -3,8 +3,8 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight, Clock3, MousePointer2, Pencil,
-  Plus, Share2, StickyNote,
+  ArrowDownRight, ArrowRight, Clock3, MousePointer2,
+  Pencil, Plus, Share2, StickyNote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,54 +17,49 @@ type EntryMode = "create" | "join" | null;
 
 function HuddleMark() {
   return (
-    <div className="grid size-8 place-items-center rounded-sm bg-primary font-mono text-sm font-bold text-primary-foreground">
+    <div className="grid size-9 rotate-[-4deg] place-items-center rounded-sm bg-landing-pop font-display text-sm font-bold text-landing-ink shadow-playful">
       H
     </div>
   );
 }
 
-function WorkspacePreview() {
+function WorkspaceScene() {
   return (
-    <div className="relative mx-auto mt-12 w-full max-w-5xl overflow-hidden rounded-md border border-border bg-canvas shadow-paper">
-      <div className="flex h-11 items-center justify-between border-b border-border bg-chrome px-3 text-[10px] md:px-4">
-        <div className="flex items-center gap-2">
+    <div
+      className="landing-workspace relative mx-auto w-full max-w-170 rotate-[1.5deg] overflow-hidden rounded-md border-2 border-landing-ink bg-canvas text-landing-ink shadow-playful-lg"
+      aria-label="Preview of a Huddle workspace"
+    >
+      <div className="flex h-11 items-center justify-between border-b-2 border-landing-ink bg-chrome px-3 text-[9px] font-bold sm:px-4">
+        <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-destructive" />
-          <span className="size-2 rounded-full" style={{ background: "var(--avatar-one)" }} />
+          <span className="size-2 rounded-full bg-landing-pop" />
           <span className="size-2 rounded-full bg-presence" />
         </div>
-        <span className="font-semibold">FRIDAY BRAINSTORM</span>
+        <span>FRIDAY BRAINSTORM</span>
         <span className="text-muted-foreground">3 HERE</span>
       </div>
-      <div className="dot-grid relative h-85 md:h-120">
-        <div className="absolute left-[6%] top-[11%] max-w-56 text-left md:max-w-72">
-          <p className="font-note text-lg font-bold leading-snug md:text-3xl">
+      <div className="dot-grid relative h-72.5 sm:h-90">
+        <div className="absolute left-[7%] top-[9%] max-w-44 text-left sm:max-w-64">
+          <p className="font-display text-xl font-bold leading-tight sm:text-3xl">
             How can planning feel lighter?
           </p>
-          <span className="mt-2 block h-1 w-12 bg-accent" />
+          <span className="mt-2 block h-1.5 w-14 bg-landing-pop" />
         </div>
-        <div className="note-yellow absolute left-[12%] top-[46%] flex aspect-square w-24 -rotate-2 items-start p-3 font-note text-sm shadow-note md:left-[20%] md:top-[42%] md:w-32 md:p-4 md:text-base">
+        <div className="note-yellow absolute bottom-[15%] left-[10%] flex aspect-square w-24 rotate-[-5deg] items-start p-3 font-note text-sm shadow-note sm:left-[20%] sm:w-28">
           Clear enough to start now
         </div>
-        <div className="note-pink absolute right-[8%] top-[24%] flex aspect-square w-24 rotate-2 items-start p-3 font-note text-sm shadow-note md:right-[20%] md:w-36 md:p-4 md:text-base">
+        <div className="note-pink absolute right-[7%] top-[19%] flex aspect-square w-24 rotate-[4deg] items-start p-3 font-note text-sm shadow-note sm:right-[15%] sm:w-28">
           Everyone adds one idea
         </div>
-        <div className="note-mint absolute bottom-[9%] left-[52%] flex aspect-square w-24 -rotate-1 items-start p-3 font-note text-sm shadow-note md:w-36 md:p-4 md:text-base">
-          Decide before the timer ends
+        <div className="note-mint absolute bottom-[10%] right-[22%] hidden aspect-square w-24 rotate-2 items-start p-3 font-note text-sm shadow-note sm:flex">
+          Decide before time runs out
         </div>
         <div className="floating-control absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 p-1.5">
-          <span className="grid size-7 place-items-center">
-            <MousePointer2 className="size-3.5" />
-          </span>
-          <span className="grid size-7 place-items-center bg-accent text-accent-foreground rounded">
-            <Pencil className="size-3.5" />
-          </span>
-          <span className="grid size-7 place-items-center">
-            <StickyNote className="size-3.5" />
-          </span>
+          <span className="grid size-7 place-items-center"><MousePointer2 className="size-3.5" /></span>
+          <span className="grid size-7 place-items-center bg-primary text-primary-foreground rounded"><Pencil className="size-3.5" /></span>
+          <span className="grid size-7 place-items-center"><StickyNote className="size-3.5" /></span>
           <span className="h-5 w-px bg-border" />
-          <span className="grid size-7 place-items-center bg-primary text-primary-foreground rounded">
-            <Plus className="size-3.5" />
-          </span>
+          <span className="grid size-7 place-items-center rounded bg-landing-pop text-landing-ink"><Plus className="size-3.5" /></span>
         </div>
       </div>
     </div>
@@ -85,16 +80,13 @@ export default function HuddleHome() {
     e.preventDefault();
     setLoading(true);
     setError("");
-
     try {
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: roomName.trim() }),
       });
-
-      if (!res.ok) throw new Error("Failed to create room");
-
+      if (!res.ok) throw new Error();
       const { code } = await res.json();
       const params = new URLSearchParams({
         name: createName.trim() || "Guest",
@@ -112,159 +104,189 @@ export default function HuddleHome() {
     e.preventDefault();
     setLoading(true);
     setError("");
-
     const code = roomCode.trim().toUpperCase();
-
     try {
       const res = await fetch(`/api/rooms/${code}`);
-      if (res.status === 404) {
-        setError("Room not found or has expired.");
-        return;
-      }
-      if (!res.ok) throw new Error("Failed to join room");
-
+      if (res.status === 404) { setError("Room not found or has expired."); return; }
+      if (!res.ok) throw new Error();
       const data = await res.json();
       const params = new URLSearchParams({
         name: joinName.trim() || "Guest",
         room: data.name,
       });
       router.push(`/room/${code}?${params}`);
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err: any) {
+      if (!err?.message?.includes("404")) setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-dvh overflow-hidden bg-background text-foreground">
-      <header className="border-b border-border bg-chrome">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-7">
-          <div className="flex items-center gap-2.5 font-mono text-sm font-bold">
+    <main className="landing-page min-h-dvh overflow-hidden bg-landing-soft font-sans text-landing-ink">
+
+      {/* Hero — dark */}
+      <section id="top" className="relative bg-landing-ink text-landing-soft">
+        <header className="relative z-30 mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
+          <a href="#top" className="flex items-center gap-3 font-display text-lg font-bold">
             <HuddleMark /> Huddle
-          </div>
-          <nav className="hidden items-center gap-6 text-xs text-muted-foreground md:flex">
-            <a href="#how-it-works" className="hover:text-foreground">how it works</a>
-            <a href="#use-cases" className="hover:text-foreground">use cases</a>
+          </a>
+          <nav className="hidden items-center gap-7 text-sm sm:flex" aria-label="Landing page navigation">
+            <a href="#how-it-works" className="transition-colors hover:text-landing-pop">How it works</a>
+            <a href="#use-cases" className="transition-colors hover:text-landing-pop">Use cases</a>
           </nav>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => { setEntryMode("join"); setError(""); }}>
-              Join
-            </Button>
-            <Button size="sm" onClick={() => { setEntryMode("create"); setError(""); }}>
-              <Plus /> Create room
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <section id="top" className="grid-bg px-4 pb-20 pt-20 text-center md:pb-28 md:pt-28">
-        <p className="text-xs font-bold uppercase text-accent-ink md:text-sm">
-          TEMPORARY COLLABORATIVE CANVAS
-        </p>
-        <h1 className="mx-auto mt-5 max-w-4xl font-mono text-5xl font-bold leading-[1.05] tracking-tight md:text-7xl">
-          Think together. Keep only what matters.
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground md:text-lg">
-          Open a room, share the code, and work visually. No accounts and no permanent clutter.
-        </p>
-        <div className="mt-9 flex flex-wrap justify-center gap-3">
-          <Button size="lg" onClick={() => { setEntryMode("create"); setError(""); }}>
-            <Plus /> Create room
+          <Button size="sm" variant="landingSoft" onClick={() => { setEntryMode("join"); setError(""); }}>
+            Join room
           </Button>
-          <Button size="lg" variant="outline" onClick={() => { setEntryMode("join"); setError(""); }}>
-            Join room <ArrowRight />
-          </Button>
-        </div>
-        <WorkspacePreview />
-      </section>
+        </header>
 
-      <section id="how-it-works" className="border-y border-border bg-chrome px-4 py-20 md:py-24">
-        <div className="mx-auto max-w-6xl">
-          <h2 className="max-w-lg font-mono text-3xl font-bold md:text-4xl">
-            From blank canvas to shared direction.
-          </h2>
-          <div className="mt-12 grid gap-px overflow-hidden rounded-md border border-border bg-border md:grid-cols-3">
-            {[
-              [Plus, "Create", "Name the room and open a fresh canvas in seconds."],
-              [Share2, "Share", "Send the room code. Teammates join without an account."],
-              [Pencil, "Work", "Sketch, add notes, chat, and decide while the room is active."],
-            ].map(([Icon, title, copy]) => {
-              const StepIcon = Icon as typeof Plus;
-              return (
-                <article key={title as string} className="bg-background p-6 text-left md:p-8">
-                  <StepIcon className="size-5 text-accent-ink" />
-                  <h3 className="mt-8 font-mono text-xl font-bold">{title as string}</h3>
-                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{copy as string}</p>
-                </article>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section id="use-cases" className="px-4 py-20 md:py-28">
-        <div className="mx-auto grid max-w-6xl gap-12 md:grid-cols-[0.8fr_1.2fr] md:items-start">
-          <div>
-            <h2 className="font-mono text-3xl font-bold md:text-4xl">
-              Useful whenever the conversation needs a surface.
-            </h2>
-            <p className="mt-5 max-w-md text-sm leading-relaxed text-muted-foreground">
-              Start quickly, work together, then let the room clear itself.
+        <div className="relative mx-auto grid min-h-[calc(92svh-4rem)] max-w-7xl gap-10 px-5 pb-20 pt-9 lg:min-h-[min(760px,calc(92svh-4rem))] lg:grid-cols-[0.84fr_1.16fr] lg:items-center lg:px-8 lg:pb-24 lg:pt-12">
+          <div className="relative z-20 max-w-2xl">
+            <h1 className="font-display text-5xl font-bold leading-[0.98] sm:text-6xl lg:text-7xl">
+              Make a mess.<br />
+              <span className="text-landing-pop">Find the idea.</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-landing-soft/75 sm:text-lg">
+              A temporary canvas for the thoughts that need other people. Sketch, stick, react, decide — then leave the clutter behind.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Button size="lg" variant="landingPop" onClick={() => { setEntryMode("create"); setError(""); }}>
+                <Plus /> Create room
+              </Button>
+              <Button size="lg" variant="landingOutline" onClick={() => { setEntryMode("join"); setError(""); }}>
+                Join with a code <ArrowRight />
+              </Button>
+            </div>
+            <p className="mt-5 flex items-center gap-2 text-xs text-landing-soft/60">
+              <Clock3 className="size-4 text-landing-pop" /> No account. Rooms clear after one quiet hour.
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {["Fast brainstorms", "Remote workshops", "Weekly planning", "Visual reviews"].map((item, index) => (
+
+          <div className="relative z-10 pb-4 pt-3 lg:translate-x-5">
+            <div className="landing-float absolute -left-2 top-0 z-20 rotate-[-8deg] rounded-sm border-2 border-landing-ink bg-landing-pop px-4 py-3 font-display text-xs font-bold text-landing-ink shadow-playful sm:-left-8 sm:top-5">
+              LIVE IDEAS →
+            </div>
+            <WorkspaceScene />
+            <div className="landing-float-delayed absolute -bottom-2 right-1 z-20 w-36 rotate-[5deg] border-2 border-landing-ink bg-landing-teal p-3 text-sm font-bold text-landing-soft shadow-playful sm:right-2.5 sm:w-44">
+              &quot;Wait — that&rsquo;s the one.&quot;
+            </div>
+            <div className="absolute -right-4 -top-7 hidden size-20 rotate-12 place-items-center rounded-full border-2 border-landing-pop bg-landing-ink text-landing-pop sm:grid">
+              <MousePointer2 className="size-8" />
+            </div>
+          </div>
+          <a
+            href="#how-it-works"
+            aria-label="See how Huddle works"
+            className="absolute bottom-5 left-1/2 z-20 grid size-11 -translate-x-1/2 place-items-center rounded-full border-2 border-landing-soft/40 text-landing-pop transition-transform hover:translate-y-1"
+          >
+            <ArrowDownRight />
+          </a>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how-it-works" className="relative px-5 py-20 sm:py-28 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-end">
+            <div>
+              <p className="font-display text-xs font-bold uppercase text-landing-teal">
+                From scattered to shared
+              </p>
+              <h2 className="mt-3 font-display text-4xl font-bold leading-tight sm:text-5xl">
+                Three moves.<br />One clear direction.
+              </h2>
+            </div>
+            <p className="max-w-xl text-lg leading-relaxed text-landing-ink/70 lg:justify-self-end">
+              Huddle gets out of the way so your group can get into the work. Nothing to set up, nothing to maintain.
+            </p>
+          </div>
+          <div className="mt-14 grid gap-5 md:grid-cols-3 md:gap-0">
+            {([
+              [Plus, "01", "Open it", "Name the session and get a fresh canvas before the energy disappears.", "step-pop", "rotate-[-1deg]"],
+              [Share2, "02", "Pass it", "Send one room code. Everyone arrives without creating an account.", "step-teal", "translate-y-8 rotate-[1deg]"],
+              [Pencil, "03", "Shape it", "Sketch, stack notes, chat, and turn the room into a decision.", "step-ink", "translate-y-2 rotate-[-1deg]"],
+            ] as const).map(([Icon, number, title, copy, style, transform]) => (
               <article
-                key={item}
-                className={`min-h-36 rounded-md border border-border p-5 ${
-                  index === 0 || index === 3 ? "bg-accent text-accent-foreground" : "bg-chrome"
-                }`}
+                key={title}
+                className={`${style} relative min-h-72 border-2 border-landing-ink p-6 shadow-playful md:${transform}`}
               >
-                <span className={`text-[10px] font-bold ${index === 0 || index === 3 ? "text-accent-foreground/70" : "text-muted-foreground"}`}>
-                  0{index + 1}
-                </span>
-                <h3 className="mt-12 font-mono text-lg font-bold">{item}</h3>
+                <div className="flex items-start justify-between">
+                  <span className="font-display text-xs font-bold">{number}</span>
+                  <Icon className="size-6" />
+                </div>
+                <h3 className="mt-20 font-display text-2xl font-bold">{title}</h3>
+                <p className="mt-4 text-sm leading-relaxed opacity-75">{copy}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="border-y border-border bg-secondary px-4 py-12">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 md:flex-row md:items-center">
-          <div className="flex gap-4">
-            <Clock3 className="mt-0.5 size-5 shrink-0 text-accent-ink" />
+      {/* Use cases */}
+      <section id="use-cases" className="bg-landing-teal px-5 py-20 text-landing-soft sm:py-28 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.78fr_1.22fr] lg:items-center">
+          <div>
+            <span className="inline-block rotate-2 bg-landing-pop px-3 py-2 font-display text-xs font-bold text-landing-ink">
+              BRING THE PEOPLE
+            </span>
+            <h2 className="mt-6 font-display text-4xl font-bold leading-tight sm:text-5xl">
+              Every conversation deserves somewhere to land.
+            </h2>
+            <Button className="mt-8" variant="landingPop" size="lg" onClick={() => { setEntryMode("create"); setError(""); }}>
+              Start a Huddle <ArrowRight />
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:gap-5">
+            {(["Fast brainstorms", "Remote workshops", "Weekly planning", "Visual reviews"] as const).map((item, index) => (
+              <article
+                key={item}
+                className={`use-tile min-h-40 border-2 border-landing-ink p-4 text-landing-ink shadow-playful sm:min-h-52 sm:p-6 ${index === 1 ? "translate-y-7" : index === 2 ? "-translate-y-2" : ""}`}
+              >
+                <span className="font-display text-xs font-bold">0{index + 1}</span>
+                <h3 className="mt-16 font-display text-lg font-bold leading-tight sm:mt-24 sm:text-xl">{item}</h3>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA banner */}
+      <section className="bg-landing-pop px-5 py-16 text-landing-ink lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex max-w-3xl items-start gap-4">
+            <Clock3 className="mt-1 size-8 shrink-0" />
             <div>
-              <h2 className="font-mono text-lg font-bold">Built to disappear.</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Rooms auto-delete after one hour of inactivity.
-              </p>
+              <p className="font-display text-xs font-bold uppercase">Temporary by design</p>
+              <h2 className="mt-2 font-display text-3xl font-bold sm:text-4xl">
+                Keep the decision. Lose the digital attic.
+              </h2>
             </div>
           </div>
-          <Button onClick={() => { setEntryMode("create"); setError(""); }}>
+          <Button size="lg" variant="landingDark" onClick={() => { setEntryMode("create"); setError(""); }}>
             Create room <ArrowRight />
           </Button>
         </div>
       </section>
 
-      <footer className="bg-chrome px-4 py-7 text-xs text-muted-foreground">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <span className="flex items-center gap-2 font-bold text-foreground">
+      {/* Footer */}
+      <footer className="bg-landing-ink px-5 py-8 text-landing-soft lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-3 font-display font-bold">
             <HuddleMark /> Huddle
           </span>
-          <span>Temporary by design.</span>
+          <span className="text-landing-soft/55">Make room for the idea.</span>
         </div>
       </footer>
 
+      {/* Entry dialog */}
       <Dialog open={entryMode !== null} onOpenChange={(open) => { if (!open) { setEntryMode(null); setError(""); } }}>
-        <DialogContent className="max-w-md rounded-md p-0 shadow-paper">
-          <div className="border-b border-border p-6">
+        <DialogContent className="max-w-md rounded-md border-2 border-landing-ink p-0 shadow-playful-lg overflow-visible">
+          <div className="rounded-t-md border-b-2 border-landing-ink bg-landing-soft p-6">
             <DialogHeader>
-              <DialogTitle className="font-mono text-2xl font-bold">
+              <DialogTitle className="font-display text-2xl font-bold text-landing-ink">
                 {entryMode === "join" ? "Join a room" : "Create a room"}
               </DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-landing-ink/60">
                 {entryMode === "join"
                   ? "Enter the code someone shared with you."
                   : "Set up a temporary canvas for your group."}
@@ -276,56 +298,61 @@ export default function HuddleHome() {
             <p className="px-6 pt-4 text-sm text-destructive">{error}</p>
           )}
 
-          {entryMode === "join" ? (
-            <form onSubmit={joinRoom} className="grid gap-5 p-6 pt-2">
-              <label className="grid gap-2 text-xs font-bold">
-                Room code
-                <Input
-                  value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value.slice(0, 8))}
-                  placeholder="ENTER 8-CHARACTER CODE"
-                  className="uppercase"
-                  required
-                />
-              </label>
-              <label className="grid gap-2 text-xs font-bold">
-                Your name
-                <Input
-                  value={joinName}
-                  onChange={(e) => setJoinName(e.target.value)}
-                  placeholder="What should we call you?"
-                  required
-                />
-              </label>
-              <Button type="submit" size="lg" className="mt-1 w-full" disabled={loading}>
-                {loading ? "Joining..." : "Join room"} <ArrowRight />
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={createRoom} className="grid gap-5 p-6 pt-2">
-              <label className="grid gap-2 text-xs font-bold">
-                Your name
-                <Input
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="What should we call you?"
-                  required
-                />
-              </label>
-              <label className="grid gap-2 text-xs font-bold">
-                Room name
-                <Input
-                  value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
-                  placeholder="e.g. Friday brainstorm"
-                  required
-                />
-              </label>
-              <Button type="submit" size="lg" className="mt-1 w-full" disabled={loading}>
-                {loading ? "Creating..." : "Create room"} <ArrowRight />
-              </Button>
-            </form>
-          )}
+          <div className="bg-white rounded-b-md">
+            {entryMode === "join" ? (
+              <form onSubmit={joinRoom} className="grid gap-5 p-6 font-sans">
+                <label className="grid gap-2 text-xs font-bold text-landing-ink">
+                  Room code
+                  <Input
+                    value={roomCode}
+                    onChange={(e) => setRoomCode(e.target.value.slice(0, 8))}
+                    placeholder="Enter 8-character code"
+                    className="uppercase border-border rounded-md"
+                    required
+                  />
+                </label>
+                <label className="grid gap-2 text-xs font-bold text-landing-ink">
+                  Your name
+                  <Input
+                    value={joinName}
+                    onChange={(e) => setJoinName(e.target.value)}
+                    placeholder="What should we call you?"
+                    className="border-border rounded-md"
+                    required
+                  />
+                </label>
+                <Button type="submit" size="lg" variant="landingPop" className="mt-1 w-full" disabled={loading}>
+                  {loading ? "Joining..." : "Join room"} <ArrowRight />
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={createRoom} className="grid gap-5 p-6 font-sans">
+                <label className="grid gap-2 text-xs font-bold text-landing-ink">
+                  Your name
+                  <Input
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder="What should we call you?"
+                    className="border-border rounded-md"
+                    required
+                  />
+                </label>
+                <label className="grid gap-2 text-xs font-bold text-landing-ink">
+                  Room name
+                  <Input
+                    value={roomName}
+                    onChange={(e) => setRoomName(e.target.value)}
+                    placeholder="e.g. Friday brainstorm"
+                    className="border-border rounded-md"
+                    required
+                  />
+                </label>
+                <Button type="submit" size="lg" variant="landingPop" className="mt-1 w-full" disabled={loading}>
+                  {loading ? "Creating..." : "Create room"} <ArrowRight />
+                </Button>
+              </form>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </main>
