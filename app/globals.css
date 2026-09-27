@@ -4,14 +4,15 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "IBM Plex Mono", ui-monospace, monospace;
-  --font-display: "IBM Plex Mono", ui-monospace, monospace;
-  --font-note: "Kalam", cursive;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: "Rubik", ui-sans-serif, sans-serif;
+  --font-display: "Space Mono", ui-monospace, monospace;
+  --font-note: "Kalam", cursive;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+  --font-landing-display: "Space Mono", ui-monospace, monospace;
+  --font-landing-body: "Rubik", ui-sans-serif, sans-serif;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -29,6 +30,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-accent-ink: var(--accent-ink);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -42,73 +44,83 @@
   --color-avatar-one: var(--avatar-one);
   --color-avatar-two: var(--avatar-two);
   --color-avatar-three: var(--avatar-three);
+  --color-landing-ink: var(--landing-ink);
+  --color-landing-teal: var(--landing-teal);
+  --color-landing-pop: var(--landing-pop);
+  --color-landing-soft: var(--landing-soft);
 }
 
 :root {
-  --radius: 0.25rem;
-
-  /* Our design tokens — these are the source of truth */
-  --background: oklch(0.955 0.012 286);
-  --foreground: oklch(0.19 0.01 275);
-  --card: oklch(0.985 0.006 286);
-  --card-foreground: oklch(0.19 0.01 275);
-  --popover: oklch(0.985 0.006 286);
-  --popover-foreground: oklch(0.19 0.01 275);
-  --primary: #0D9488;
-  --primary-foreground: oklch(0.985 0.005 286);
-  --secondary: oklch(0.925 0.012 286);
-  --secondary-foreground: oklch(0.22 0.01 275);
-  --muted: oklch(0.925 0.01 286);
-  --muted-foreground: oklch(0.5 0.018 275);
-  --accent: #0D9488;
-  --accent-foreground: oklch(0.985 0.005 286);
-  --accent-ink: #0F766E;
+  color-scheme: light;
+  --radius: 0.75rem;
+  --background: #f7f1ff;
+  --foreground: #2a1745;
+  --card: #fdfaff;
+  --card-foreground: #2a1745;
+  --popover: #fdfaff;
+  --popover-foreground: #2a1745;
+  --primary: #7c3aed;
+  --primary-foreground: #fdfaff;
+  --secondary: #ece2fb;
+  --secondary-foreground: #3a2060;
+  --muted: #ece2fb;
+  --muted-foreground: #6b5a8a;
+  --accent: #7c3aed;
+  --accent-foreground: #fdfaff;
+  --accent-ink: #5b21b6;
   --destructive: oklch(0.58 0.19 28);
-  --border: oklch(0.84 0.014 286);
-  --input: oklch(0.78 0.018 286);
-  --ring: #0D9488;
-  --canvas: oklch(0.968 0.011 286);
-  --canvas-ink: oklch(0.28 0.02 275);
-  --chrome: oklch(0.982 0.006 286);
+  --destructive-foreground: oklch(0.98 0.008 83);
+  --border: #ddd0f2;
+  --input: #c9b6ea;
+  --ring: #7c3aed;
+  --canvas: #faf6ff;
+  --canvas-ink: #3a2060;
+  --chrome: #fdfaff;
   --presence: oklch(0.69 0.16 145);
-  --sketch: oklch(0.65 0.15 232);
-  --qr: oklch(0.99 0.003 286);
-  --overlay: oklch(0.18 0.015 275 / 0.62);
-  --avatar-one: oklch(0.75 0.12 48);
-  --avatar-two: oklch(0.73 0.11 232);
-  --avatar-three: oklch(0.76 0.1 153);
-
-  /* Note colors */
-  --note-yellow: oklch(0.86 0.09 288);
-  --note-pink: oklch(0.84 0.11 12);
-  --note-mint: oklch(0.85 0.1 156);
-  --note-blue: oklch(0.83 0.08 231);
+  --sketch: #b394e8;
+  --qr: #ffffff;
+  --avatar-one: #ffc94d;
+  --avatar-two: #c4b0f0;
+  --avatar-three: #f0a8c8;
+  --note-yellow: #ffe9b0;
+  --note-pink: #ffd3e4;
+  --note-mint: #d3f2e3;
+  --note-blue: #d9ccfb;
   --note-tape: oklch(0.98 0.015 88 / 0.76);
-  --dot: oklch(0.72 0.022 286 / 0.35);
-
-  /* Shadows */
+  --dot: oklch(0.55 0.1 300 / 0.28);
+  --overlay: oklch(0.25 0.06 300 / 0.62);
+  --landing-ink: #2a1745;
+  --landing-teal: #7c3aed;
+  --landing-pop: #ffc94d;
+  --landing-soft: #f7f1ff;
   --shadow-soft: 0 3px 10px oklch(0.28 0.03 286 / 0.1);
   --shadow-paper: 0 18px 46px oklch(0.28 0.03 286 / 0.12);
   --shadow-note: 5px 7px 0 oklch(0.28 0.03 286 / 0.08), 0 10px 20px oklch(0.28 0.03 286 / 0.07);
+  --shadow-playful: 5px 5px 0 var(--landing-ink);
+  --shadow-playful-lg: 10px 12px 0 color-mix(in oklab, var(--landing-ink) 78%, transparent);
+  --shadow-playful-pop: 5px 5px 0 var(--landing-pop);
 }
 
 @layer base {
-  * { box-sizing: border-box; border-color: var(--border); }
-  html { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  * { border-color: var(--border); box-sizing: border-box; }
+  html { font-family: var(--font-sans); }
   body { margin: 0; background: var(--background); color: var(--foreground); }
   button, a, input { letter-spacing: 0; }
-  ::selection { background: #0D9488; color: oklch(0.985 0.005 286); }
+  ::selection { background: var(--accent); color: var(--accent-foreground); }
 }
 
 @layer utilities {
   .shadow-soft { box-shadow: var(--shadow-soft); }
   .shadow-paper { box-shadow: var(--shadow-paper); }
   .shadow-note { box-shadow: var(--shadow-note); }
+  .shadow-playful { box-shadow: var(--shadow-playful); }
+  .shadow-playful-lg { box-shadow: var(--shadow-playful-lg); }
+  .shadow-playful-pop { box-shadow: var(--shadow-playful-pop); }
   .floating-control {
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) + 4px);
+    border: 2px solid var(--landing-ink);
+    border-radius: var(--radius-lg);
     background: color-mix(in oklab, var(--chrome) 94%, transparent);
-    box-shadow: var(--shadow-soft);
+    box-shadow: var(--shadow-playful);
     backdrop-filter: blur(12px);
   }
   .grid-bg {
@@ -132,6 +144,25 @@
   .swatch-pink { background: var(--note-pink); }
   .swatch-mint { background: var(--note-mint); }
   .swatch-blue { background: var(--note-blue); }
+  .landing-page { letter-spacing: 0; }
+  .landing-workspace { animation: workspace-in 700ms cubic-bezier(.2,.8,.2,1) both; }
+  .landing-float { animation: float-note 4.6s ease-in-out infinite; }
+  .landing-float-delayed { animation: float-note 5.2s ease-in-out 700ms infinite; }
+  .step-pop { background: var(--landing-pop); color: var(--landing-ink); }
+  .step-teal { background: var(--landing-teal); color: var(--landing-soft); }
+  .step-ink { background: var(--landing-ink); color: var(--landing-soft); }
+  .use-tile:nth-child(1), .use-tile:nth-child(4) { background: var(--landing-soft); }
+  .use-tile:nth-child(2), .use-tile:nth-child(3) { background: var(--landing-pop); }
+}
+
+@keyframes workspace-in {
+  from { opacity: 0; transform: translateY(22px) rotate(0deg) scale(.97); }
+  to { opacity: 1; transform: translateY(0) rotate(1.5deg) scale(1); }
+}
+
+@keyframes float-note {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-7px) rotate(1deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
