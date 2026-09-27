@@ -1,4 +1,5 @@
 import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
@@ -14,11 +15,17 @@ const buttonVariants = cva(
         destructive: "bg-destructive text-white hover:bg-destructive/90",
         link: "text-primary underline-offset-4 hover:underline",
         toolActive: "bg-accent text-accent-foreground hover:bg-accent/90",
+        // Landing variants
+        landingPop: "border-2 border-landing-ink bg-landing-pop text-landing-ink shadow-playful hover:translate-y-[-2px] hover:shadow-playful-lg active:translate-y-0",
+        landingLight: "border-2 border-landing-soft/40 bg-transparent text-landing-soft hover:bg-landing-soft/10",
+        landingOutline: "border-2 border-landing-soft bg-transparent text-landing-soft hover:border-landing-soft hover:bg-landing-soft/10",
+        landingDark: "border-2 border-landing-ink bg-landing-ink text-landing-soft shadow-playful hover:bg-landing-ink/90",
+        landingSoft: "border-2 border-landing-soft bg-landing-soft text-landing-ink shadow-none hover:bg-landing-pop hover:text-landing-ink h-9 px-3 text-xs",
       },
       size: {
         default: "h-11 px-6",
         sm: "h-8 px-3 text-xs",
-        lg: "h-12 px-8",
+        lg: "h-12 px-7 text-base",
         icon: "size-9",
       },
     },
