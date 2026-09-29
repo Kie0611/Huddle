@@ -115,6 +115,7 @@ export default function HuddleHome() {
         room: data.name,
       });
       router.push(`/room/${code}?${params}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       if (!err?.message?.includes("404")) setError("Something went wrong. Please try again.");
     } finally {
@@ -307,7 +308,7 @@ export default function HuddleHome() {
                     value={roomCode}
                     onChange={(e) => setRoomCode(e.target.value.slice(0, 8))}
                     placeholder="Enter 8-character code"
-                    className="uppercase border-border rounded-md"
+                    className="border-border rounded-md"
                     required
                   />
                 </label>
