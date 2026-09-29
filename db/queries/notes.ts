@@ -14,8 +14,23 @@ export type CreateNoteInput = {
 }
 
 export type UpdateNoteFields = {
-  text?: string,
-  color?: string
+  text?: string;
+  color?: string;
+  x?: number;
+  y?: number;
+}
+
+export type UpdateNoteInput = {
+  id: string,
+  roomId: string,
+  authorId: string,
+  fields: UpdateNoteFields,
+}
+
+export type DeleteNoteInput = {
+  id: string,
+  roomId: string,
+  authorId: string,
 }
 
 export async function getNotes(roomId: string): Promise<Note[]> {
@@ -42,21 +57,20 @@ export async function createNote(input: CreateNoteInput): Promise<Note> {
   return note;
 }
 
-export async function updateNote(
-  id: string,
-  authorId: string,
-  fields: Partial<UpdateNoteFields>
-): Promise<Note | null> {
+export async function updateNote(input: UpdateNoteInput): Promise<Note | null> {
   const [note] = await db
     .update(stickyNotes)
     .set({
-      text: fields.text,
-      color: fields.color,
+      text: input.fields.text,
+      color: input.fields.color,
+      x: input.fields.x,
+      y: input.fields.y,
     })
     .where(
       and(
-        eq(stickyNotes.id, id),
-        eq(stickyNotes.authorId, authorId)
+        eq(stickyNotes.id, input.id),
+        eq(stickyNotes.roomId, input.roomId),
+        eq(stickyNotes.authorId, input.authorId)
       )
     )
     .returning();
@@ -64,13 +78,14 @@ export async function updateNote(
   return note ?? null;
 }
 
-export async function deleteNote(id: string, authorId: string): Promise<boolean> {
+export async function deleteNote(input: DeleteNoteInput): Promise<boolean> {
   const [note] = await db
     .delete(stickyNotes)
     .where(
       and(
-        eq(stickyNotes.id, id),
-        eq(stickyNotes.authorId, authorId)
+        eq(stickyNotes.id, input.id),
+        eq(stickyNotes.roomId, input.roomId),
+        eq(stickyNotes.authorId, input.authorId)
       )
     )
     .returning();
