@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
+import { ensureLiveblocksRoom } from "@/lib/liveblocks";
 
 type Params = { params: Promise<{code: string}> };
 
@@ -15,6 +16,7 @@ export async function GET(_req: Request, { params }: Params) {
   }
 
   await touchRoom(room.id);
+  await ensureLiveblocksRoom(room.code);
 
   return NextResponse.json(room);
 }
