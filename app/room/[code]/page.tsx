@@ -1,33 +1,82 @@
 "use client";
 
-import { useState, useMemo, useEffect, type FormEvent } from "react";
+import {
+  useState, useMemo, useEffect, useRef,
+  type FormEvent, type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
+import { createClient } from "@liveblocks/client";
 import {
-  ArrowLeft, ChevronDown, Copy, Download, Hand, MessageCircle, Minus,
+  ChevronDown, Copy, Download, Hand, MessageCircle,
   MousePointer2, Pencil, Plus, Redo2, Send, Share2, StickyNote,
   Undo2, Users, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription,
-  DialogHeader, DialogTitle, DialogTrigger,
+  DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import type { RoomEvent } from "@/lib/liveblocks";
 
 type Tool = "select" | "pan" | "draw" | "note";
 type NoteColor = "yellow" | "pink" | "mint" | "blue";
 type StickyNote = {
-  id: number;
+  id: string;
   text: string;
   color: NoteColor;
   x: number;
   y: number;
   rotate: number;
-  authorId: string;
+  authorId: string | null;
 };
 type Message = { id: number; author: string; text: string; time: string };
+type PersistedNote = Omit<StickyNote, "rotate" | "color"> & { color: string };
+type NoteDrag = {
+  id: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+};
+
+const liveblocksPublicKey = process.env.NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY;
+const liveblocksClient = liveblocksPublicKey
+  ? createClient({ publicApiKey: liveblocksPublicKey })
+  : null;
+
+const legacyNoteColors: Record<string, NoteColor> = {
+  yellow: "yellow",
+  pink: "pink",
+  mint: "mint",
+  blue: "blue",
+  "#ffe566": "yellow",
+  "#ffb3ba": "pink",
+  "#b5ead7": "mint",
+  "#b5d5ea": "blue",
+};
+
+function toNoteColor(color: unknown): NoteColor {
+  if (typeof color !== "string") return "yellow";
+  return legacyNoteColors[color.toLowerCase()] ?? "yellow";
+}
+
+function toStickyNote(note: PersistedNote, rotate = Math.random() * 4 - 2): StickyNote {
+  return {
+    ...note,
+    color: toNoteColor(note.color),
+    rotate,
+  };
+}
+
+function clampNotePosition(position: number, maximum: number): number {
+  return Math.min(maximum, Math.max(0, Math.round(position)));
+}
 
 function Logo() {
   return (
@@ -40,7 +89,7 @@ function Logo() {
 function EmptyRoomState({ expired }: { expired: boolean }) {
   const router = useRouter();
   return (
-    <main className="grid min-h-[100dvh] place-items-center bg-background px-5 text-center">
+    <main className="grid min-h-dvh place-items-center bg-background px-5 text-center">
       <div className="flex max-w-md flex-col items-center">
         <Logo />
         <h1 className="mt-7 font-mono text-4xl font-semibold">
@@ -64,7 +113,7 @@ export default function RoomPage() {
   const searchParams = useSearchParams();
   const name = searchParams.get("name") ?? "Guest";
   const roomName = searchParams.get("room") ?? "Untitled huddle";
-  const normalizedCode = code.toUpperCase();
+  const normalizedCode = code;
 
   const [roomStatus, setRoomStatus] = useState<"loading" | "active" | "notfound" | "expired">("loading");
   const [tool, setTool] = useState<Tool>("draw");
@@ -76,6 +125,9 @@ export default function RoomPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [copied, setCopied] = useState(false);
   const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const noteDragRef = useRef<NoteDrag | null>(null);
 
   const sessionId = useMemo(() => {
     if (typeof window === "undefined") return "guest";
@@ -131,68 +183,248 @@ export default function RoomPage() {
       try {
         const res = await fetch(`/api/rooms/${normalizedCode}/notes`);
         if (res.ok) {
-          const data = await res.json();
-          setNotes(
-            data.map((n: any) => ({
-              id: n.id,
-              text: n.text,
-              color: (n.color as NoteColor) ?? "yellow",
-              x: n.x,
-              y: n.y,
-              rotate: Math.random() * 4 - 2,
-              authorId: n.authorId ?? "",
-            }))
-          );
+          const data: PersistedNote[] = await res.json();
+          setNotes(data.map((note) => toStickyNote(note)));
         }
       } catch {}
     }
     loadData();
   }, [roomStatus, normalizedCode]);
 
+  useEffect(() => {
+    if (roomStatus !== "active" || !liveblocksClient) return;
+
+    const { room, leave } = liveblocksClient.enterRoom<
+      Record<string, never>,
+      Record<string, never>,
+      RoomEvent
+    >(
+      normalizedCode,
+      { initialPresence: {} }
+    );
+
+    const unsubscribe = room.subscribe("event", ({ event }) => {
+      if (event.type === "note:create" || event.type === "note:update") {
+        const incoming = toStickyNote(event.note);
+
+        setNotes((prev) => {
+          const existing = prev.find((note) => note.id === incoming.id);
+          if (!existing) return [...prev, incoming];
+
+          return prev.map((note) =>
+            note.id === incoming.id
+              ? { ...incoming, rotate: note.rotate }
+              : note
+          );
+        });
+      }
+
+      if (event.type === "note:delete") {
+        setNotes((prev) => prev.filter((note) => note.id !== event.note.id));
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      leave();
+    };
+  }, [roomStatus, normalizedCode]);
+
   const addNote = async () => {
-    const tempId = Date.now();
-    const newNote: StickyNote = {
-      id: tempId,
+    const draft = {
       text: "New thought",
       color: noteColor,
-      x: 40 + Math.random() * 20,
-      y: 30 + Math.random() * 20,
+      x: Math.round(40 + Math.random() * 20),
+      y: Math.round(30 + Math.random() * 20),
       rotate: Math.random() * 4 - 2,
-      authorId: sessionId,
     };
-    setNotes((prev) => [...prev, newNote]);
 
     try {
       const res = await fetch(`/api/rooms/${normalizedCode}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          x: Math.round(newNote.x),
-          y: Math.round(newNote.y),
-          text: newNote.text,
-          color: noteColor === "yellow" ? "#FFE566"
-            : noteColor === "pink" ? "#FFB3BA"
-            : noteColor === "mint" ? "#B5EAD7"
-            : "#B5D5EA",
+          x: draft.x,
+          y: draft.y,
+          text: draft.text,
+          color: draft.color,
           authorId: sessionId,
         }),
       });
-      if (res.ok) {
-        const saved = await res.json();
-        setNotes((prev) =>
-          prev.map((n) => (n.id === tempId ? { ...n, id: saved.id } : n))
-        );
+
+      if (!res.ok) {
+        throw new Error(await res.text());
       }
-    } catch {}
+
+      const saved: PersistedNote = await res.json();
+      const newNote = toStickyNote(saved, draft.rotate);
+
+      setNotes((prev) =>
+        prev.some((note) => note.id === newNote.id)
+          ? prev
+          : [...prev, newNote]
+      );
+    } catch (error) {
+      console.error("Could not create note:", error);
+    }
   };
 
-  const deleteNote = async (id: number) => {
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+  const deleteNote = async (id: string) => {
     try {
-      await fetch(`/api/rooms/${normalizedCode}/notes/${id}?authorId=${sessionId}`, {
+      const res = await fetch(`/api/rooms/${normalizedCode}/notes/${id}?authorId=${sessionId}`, {
         method: "DELETE",
       });
-    } catch {}
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      setNotes((prev) => prev.filter((note) => note.id !== id));
+      setSelectedNoteId((selectedId) => selectedId === id ? null : selectedId);
+    } catch (error) {
+      console.error("Could not delete note:", error);
+    }
+  };
+
+  const saveNotePosition = async (drag: NoteDrag) => {
+    try {
+      const res = await fetch(`/api/rooms/${normalizedCode}/notes/${drag.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          x: drag.x,
+          y: drag.y,
+          authorId: sessionId,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const saved: PersistedNote = await res.json();
+      setNotes((prev) =>
+        prev.map((note) =>
+          note.id === drag.id
+            ? { ...note, x: saved.x, y: saved.y }
+            : note
+        )
+      );
+    } catch (error) {
+      console.error("Could not move note:", error);
+      setNotes((prev) =>
+        prev.map((note) =>
+          note.id === drag.id
+            ? { ...note, x: drag.startX, y: drag.startY }
+            : note
+        )
+      );
+    }
+  };
+
+  const updateNoteColor = async (id: string, color: NoteColor) => {
+    const note = notes.find((candidate) => candidate.id === id);
+    if (!note || note.authorId !== sessionId || note.color === color) return;
+
+    try {
+      const res = await fetch(`/api/rooms/${normalizedCode}/notes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ color, authorId: sessionId }),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const saved: PersistedNote = await res.json();
+      setNotes((prev) =>
+        prev.map((candidate) =>
+          candidate.id === id
+            ? { ...candidate, color: toNoteColor(saved.color) }
+            : candidate
+        )
+      );
+    } catch (error) {
+      console.error("Could not change note color:", error);
+    }
+  };
+
+  const startNoteDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    note: StickyNote
+  ) => {
+    if (note.authorId !== sessionId || event.button !== 0) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest("textarea, button")) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedNoteId(note.id);
+    noteDragRef.current = {
+      id: note.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: note.x,
+      startY: note.y,
+      x: note.x,
+      y: note.y,
+    };
+  };
+
+  const moveNote = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = noteDragRef.current;
+    const board = event.currentTarget.parentElement;
+    if (!drag || drag.pointerId !== event.pointerId || !board) return;
+
+    const bounds = board.getBoundingClientRect();
+    const noteBounds = event.currentTarget.getBoundingClientRect();
+    const maxX = Math.max(0, 100 - (noteBounds.width / bounds.width) * 100);
+    const maxY = Math.max(0, 100 - (noteBounds.height / bounds.height) * 100);
+    const x = clampNotePosition(
+      drag.startX + ((event.clientX - drag.startClientX) / bounds.width) * 100,
+      maxX
+    );
+    const y = clampNotePosition(
+      drag.startY + ((event.clientY - drag.startClientY) / bounds.height) * 100,
+      maxY
+    );
+
+    drag.x = x;
+    drag.y = y;
+    setNotes((prev) =>
+      prev.map((note) => note.id === drag.id ? { ...note, x, y } : note)
+    );
+  };
+
+  const finishNoteDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = noteDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    noteDragRef.current = null;
+
+    if (drag.x !== drag.startX || drag.y !== drag.startY) {
+      void saveNotePosition(drag);
+    }
+  };
+
+  const cancelNoteDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = noteDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    noteDragRef.current = null;
+    setNotes((prev) =>
+      prev.map((note) =>
+        note.id === drag.id
+          ? { ...note, x: drag.startX, y: drag.startY }
+          : note
+      )
+    );
   };
 
   const sendMessage = (e: FormEvent) => {
@@ -220,7 +452,7 @@ export default function RoomPage() {
 
   if (roomStatus === "loading") {
     return (
-      <main className="grid min-h-[100dvh] place-items-center bg-background">
+      <main className="grid min-h-dvh place-items-center bg-background">
         <p className="text-sm text-muted-foreground">Joining room...</p>
       </main>
     );
@@ -229,7 +461,7 @@ export default function RoomPage() {
   if (roomStatus === "notfound") return <EmptyRoomState expired={false} />;
 
   return (
-    <main className="relative h-[100dvh] overflow-hidden bg-canvas text-foreground">
+    <main className="relative h-dvh overflow-hidden bg-canvas text-foreground">
       {/* Top bar */}
       <header className="relative z-20 flex h-16 items-center justify-between border-b border-border/70 bg-chrome px-3 md:px-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -272,13 +504,12 @@ export default function RoomPage() {
             ))}
           </div>
 
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <Share2 /> <span className="hidden sm:inline">Invite</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-sm rounded-lg p-7 shadow-paper">
+          <Button size="sm" onClick={() => setInviteOpen(true)}>
+            <Share2 /> <span className="hidden sm:inline">Invite</span>
+          </Button>
+
+          <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+            <DialogContent className="max-w-sm rounded-lg border-0 p-7 shadow-paper">
               <DialogHeader className="items-center text-center">
                 <DialogTitle className="font-mono text-2xl">{roomName}</DialogTitle>
                 <DialogDescription>
@@ -321,12 +552,56 @@ export default function RoomPage() {
                 top: `${note.y}%`,
                 transform: `rotate(${note.rotate}deg)`,
               }}
+              onPointerDown={(event) => startNoteDrag(event, note)}
+              onPointerMove={moveNote}
+              onPointerUp={finishNoteDrag}
+              onPointerCancel={cancelNoteDrag}
             >
               <span
                 className="absolute left-1/2 top-0 h-3 w-12 -translate-x-1/2 bg-note-tape"
                 aria-hidden="true"
               />
-              <span>{note.text}</span>
+              <textarea
+                className="h-full w-full resize-none bg-transparent font-note text-sm leading-snug outline-none placeholder:text-current/50"
+                defaultValue={note.text}
+                placeholder="Write something..."
+                readOnly={note.authorId !== sessionId}
+                onFocus={() => setSelectedNoteId(note.id)}
+                onBlur={async (e) => {
+                  const newText = e.currentTarget.value.trim();
+
+                  if (!newText || newText === note.text) return;
+
+                  try {
+                    const res = await fetch(
+                      `/api/rooms/${normalizedCode}/notes/${note.id}`,
+                      {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          text: newText,
+                          authorId: sessionId,
+                        }),
+                      }
+                    );
+
+                    if (!res.ok) {
+                      throw new Error(await res.text());
+                    }
+
+                    const saved = await res.json();
+
+                    setNotes((prev) =>
+                      prev.map((n) =>
+                        n.id === note.id ? { ...n, text: saved.text } : n
+                      )
+                    );
+                  } catch (error) {
+                    console.error("Could not save note:", error);
+                    e.currentTarget.value = note.text;
+                  }
+                }}
+              />
               {note.authorId === sessionId && (
                 <Button
                   variant="ghost"
@@ -390,7 +665,10 @@ export default function RoomPage() {
               <button
                 key={c}
                 aria-label={`${c} note`}
-                onClick={() => setNoteColor(c)}
+                onClick={() => {
+                  setNoteColor(c);
+                  if (selectedNoteId) void updateNoteColor(selectedNoteId, c);
+                }}
                 className={cn(
                   "size-5 shrink-0 rounded-full border-2 border-chrome ring-offset-2 ring-offset-chrome transition-transform active:scale-95",
                   `swatch-${c}`,
@@ -459,7 +737,7 @@ export default function RoomPage() {
         </div>
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
           {messages.length === 0 ? (
-            <div className="m-auto max-w-[220px] text-center">
+            <div className="m-auto max-w-55 text-center">
               <MessageCircle className="mx-auto size-7 text-muted-foreground" />
               <p className="mt-3 text-sm text-muted-foreground">
                 Chat is ephemeral. Say hello while everyone is here.
