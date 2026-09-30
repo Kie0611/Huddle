@@ -1,21 +1,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
+import { getActiveRoomByCode, touchRoom } from "@/db/queries/rooms";
 import { getStrokes, createStroke, checkRateLimit } from "@/db/queries/strokes";
 import { broadcastEvent } from "@/lib/liveblocks";
 
 const strokeSchema = z.object({
-  points: z.array(z.object({ x: z.number(), y: z.number() })).min(1),
-  color: z.union([z.string().length(7), z.literal("eraser")]),
+  points: z.array(
+    z.object({
+      x: z.number().min(0).max(1920),
+      y: z.number().min(0).max(1080),
+    })
+  ).min(1).max(2_000),
+  color: z.union([z.string().regex(/^#[0-9a-fA-F]{6}$/), z.literal("eraser")]),
   thickness: z.number().int().min(1).max(20),
-  authorId: z.string().optional(),
-})
+  authorId: z.string().uuid(),
+});
 
 type Params = { params: Promise<{code: string}> };
 
 export async function GET(_req: Request, { params }: Params) {
   const { code } = await params;
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
 
   if (!room) {
     return NextResponse.json(
@@ -30,7 +35,7 @@ export async function GET(_req: Request, { params }: Params) {
 
 export async function POST(req: Request, { params }: Params) {
   const { code } = await params;
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
 
   if (!room) {
     return NextResponse.json(
@@ -39,7 +44,12 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  const body = req.body;
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 });
+  }
   const parsed = strokeSchema.safeParse(body);
 
   if (!parsed.success) {
@@ -50,9 +60,8 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   const { points, color, thickness, authorId } = parsed.data;
-  const effectiveAuthorId = authorId ?? "anonymous";
 
-  const allowed = await checkRateLimit(room.id, effectiveAuthorId);
+  const allowed = await checkRateLimit(room.id, authorId);
   if (!allowed) {
     return NextResponse.json(
       { error: "Rate limit exceeded" },
@@ -65,7 +74,7 @@ export async function POST(req: Request, { params }: Params) {
     points,
     color,
     thickness,
-    authorId: effectiveAuthorId
+    authorId,
   });
 
   await touchRoom(room.id);

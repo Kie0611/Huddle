@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
+import { getActiveRoomByCode, touchRoom } from "@/db/queries/rooms";
 import { updateNote, deleteNote } from "@/db/queries/notes";
 import { broadcastEvent } from "@/lib/liveblocks";
 
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid note ID" }, { status: 400 });
   }
 
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
 
   if (!room) {
     return NextResponse.json(
@@ -98,7 +98,7 @@ export async function DELETE(req: Request, { params }: Params) {
     );
   }
 
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
   if (!room) {
     return NextResponse.json(
       { error: "Room not found or has expired" },

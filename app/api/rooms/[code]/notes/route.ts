@@ -1,5 +1,5 @@
 import { createNote, getNotes } from "@/db/queries/notes";
-import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
+import { getActiveRoomByCode, touchRoom } from "@/db/queries/rooms";
 import { broadcastEvent } from "@/lib/liveblocks";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -21,7 +21,7 @@ type Params = { params: Promise<{code: string}> }
 
 export async function GET(_req: Request, { params }: Params) {
   const { code } = await params;
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
 
   if (!room) {
     return NextResponse.json(
@@ -37,7 +37,7 @@ export async function GET(_req: Request, { params }: Params) {
 
 export async function POST(req: Request, { params }: Params) {
   const { code } = await params;
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
 
   if (!room) {
     return NextResponse.json(

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getRoomByCode, touchRoom } from "@/db/queries/rooms";
+import { getActiveRoomByCode, touchRoom } from "@/db/queries/rooms";
 import { ensureLiveblocksRoom } from "@/lib/liveblocks";
 
 type Params = { params: Promise<{code: string}> };
 
 export async function GET(_req: Request, { params }: Params) {
   const { code } = await params;
-  const room = await getRoomByCode(code);
+  const room = await getActiveRoomByCode(code);
 
   if (!room) {
     return NextResponse.json(
@@ -18,5 +18,5 @@ export async function GET(_req: Request, { params }: Params) {
   await touchRoom(room.id);
   await ensureLiveblocksRoom(room.code);
 
-  return NextResponse.json(room);
+  return NextResponse.json({ ...room, lastActiveAt: new Date() });
 }
