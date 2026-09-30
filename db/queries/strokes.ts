@@ -12,6 +12,12 @@ export type CreateStrokeInput = {
   authorId?: string;
 };
 
+export type DeleteStrokeInput = {
+  id: string;
+  roomId: string;
+  authorId: string;
+};
+
 export async function getStrokes(roomId: string): Promise<Stroke[]> {
   return db
     .select()
@@ -33,6 +39,21 @@ export async function createStroke(input: CreateStrokeInput): Promise<Stroke> {
     .returning();
 
   return stroke;
+}
+
+export async function deleteStroke(input: DeleteStrokeInput): Promise<boolean> {
+  const [stroke] = await db
+    .delete(strokes)
+    .where(
+      and(
+        eq(strokes.id, input.id),
+        eq(strokes.roomId, input.roomId),
+        eq(strokes.authorId, input.authorId)
+      )
+    )
+    .returning({ id: strokes.id });
+
+  return !!stroke;
 }
 
 export async function checkRateLimit(
