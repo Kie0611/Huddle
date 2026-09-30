@@ -104,7 +104,9 @@ export default function HuddleHome() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const code = roomCode.trim().toUpperCase();
+    // nanoid room codes are case-sensitive, so preserve the code exactly as
+    // the inviter shared it instead of normalizing it.
+    const code = roomCode.trim();
     try {
       const res = await fetch(`/api/rooms/${code}`);
       if (res.status === 404) { setError("Room not found or has expired."); return; }
