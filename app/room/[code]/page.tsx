@@ -1,15 +1,15 @@
 "use client";
 
 import {
-  useState, useMemo, useEffect, useRef,
+  useState, useMemo, useEffect, useRef, useCallback,
   type FormEvent, type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@liveblocks/client";
 import {
-  ChevronDown, Copy, Download, Hand, MessageCircle,
-  MousePointer2, Pencil, Plus, Redo2, Send, Share2, StickyNote,
+  Copy, Download, Hand, MessageCircle,
+  Eraser, Eye, EyeOff, MousePointer2, Pencil, Plus, Redo2, Send, Share2, StickyNote,
   Undo2, Users, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,8 +32,32 @@ type StickyNote = {
   rotate: number;
   authorId: string | null;
 };
-type Message = { id: number; author: string; text: string; time: string };
+type Message = { id: string; author: string; text: string; time: string };
 type PersistedNote = Omit<StickyNote, "rotate" | "color"> & { color: string };
+type Point = { x: number; y: number };
+type CanvasStroke = {
+  id: string;
+  roomId: string;
+  points: Point[];
+  color: string;
+  thickness: number;
+  authorId: string | null;
+  createdAt: string;
+};
+type ActiveStroke = {
+  pointerId: number;
+  stroke: CanvasStroke;
+};
+type BoardPan = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+};
+type RealtimeRoom = {
+  broadcastEvent: (event: RoomEvent) => void;
+};
 type NoteDrag = {
   id: string;
   pointerId: number;
@@ -45,10 +69,22 @@ type NoteDrag = {
   y: number;
 };
 
-const liveblocksPublicKey = process.env.NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY;
-const liveblocksClient = liveblocksPublicKey
-  ? createClient({ publicApiKey: liveblocksPublicKey })
-  : null;
+const boardWidth = 1920;
+const boardHeight = 1080;
+const defaultBrushColor = "#3a2060";
+const brushSizes = [2, 4, 8] as const;
+const brushPalette: Record<NoteColor, string> = {
+  yellow: "#d97706",
+  pink: "#db2777",
+  mint: "#059669",
+  blue: "#2563eb",
+};
+const noteExportColors: Record<NoteColor, string> = {
+  yellow: "#ffe9b0",
+  pink: "#ffd3e4",
+  mint: "#d3f2e3",
+  blue: "#d9ccfb",
+};
 
 const legacyNoteColors: Record<string, NoteColor> = {
   yellow: "yellow",
@@ -76,6 +112,58 @@ function toStickyNote(note: PersistedNote, rotate = Math.random() * 4 - 2): Stic
 
 function clampNotePosition(position: number, maximum: number): number {
   return Math.min(maximum, Math.max(0, Math.round(position)));
+}
+
+function toInitials(personName: string): string {
+  return personName
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "G";
+}
+
+function toCanvasStroke(stroke: CanvasStroke): CanvasStroke {
+  return {
+    ...stroke,
+    points: stroke.points.filter(
+      (point): point is Point =>
+        Number.isFinite(point?.x) && Number.isFinite(point?.y)
+    ),
+  };
+}
+
+function drawStroke(
+  context: CanvasRenderingContext2D,
+  stroke: CanvasStroke,
+  eraserFill?: string
+) {
+  const [firstPoint, ...remainingPoints] = stroke.points;
+  if (!firstPoint) return;
+
+  context.save();
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.lineWidth = stroke.thickness;
+  context.globalCompositeOperation =
+    stroke.color === "eraser" && !eraserFill ? "destination-out" : "source-over";
+  context.strokeStyle = stroke.color === "eraser" ? eraserFill ?? "#000000" : stroke.color;
+  context.fillStyle = context.strokeStyle;
+  context.beginPath();
+  context.moveTo(firstPoint.x, firstPoint.y);
+
+  for (const point of remainingPoints) {
+    context.lineTo(point.x, point.y);
+  }
+
+  if (remainingPoints.length === 0) {
+    context.arc(firstPoint.x, firstPoint.y, stroke.thickness / 2, 0, Math.PI * 2);
+    context.fill();
+  } else {
+    context.stroke();
+  }
+  context.restore();
 }
 
 function Logo() {
@@ -118,16 +206,34 @@ export default function RoomPage() {
   const [roomStatus, setRoomStatus] = useState<"loading" | "active" | "notfound" | "expired">("loading");
   const [tool, setTool] = useState<Tool>("draw");
   const [noteColor, setNoteColor] = useState<NoteColor>("yellow");
+  const [brushColor, setBrushColor] = useState(defaultBrushColor);
+  const [brushThickness, setBrushThickness] = useState<number>(4);
+  const [isErasing, setIsErasing] = useState(false);
   const [notes, setNotes] = useState<StickyNote[]>([]);
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [strokes, setStrokes] = useState<CanvasStroke[]>([]);
   const [zoom, setZoom] = useState(100);
+  const [boardPan, setBoardPan] = useState({ x: 0, y: 0 });
+  const [showNotes, setShowNotes] = useState(true);
+  const [undoneStrokes, setUndoneStrokes] = useState<CanvasStroke[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [copied, setCopied] = useState(false);
+  const [pendingSaves, setPendingSaves] = useState(0);
   const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [participantCount, setParticipantCount] = useState(1);
+  const [otherParticipantNames, setOtherParticipantNames] = useState<string[]>([]);
   const noteDragRef = useRef<NoteDrag | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeStrokeRef = useRef<ActiveStroke | null>(null);
+  const boardPanRef = useRef<BoardPan | null>(null);
+  const liveRoomRef = useRef<RealtimeRoom | null>(null);
 
   const sessionId = useMemo(() => {
     if (typeof window === "undefined") return "guest";
@@ -143,6 +249,31 @@ export default function RoomPage() {
     () => `${typeof window !== "undefined" ? window.location.origin : ""}/room/${normalizedCode}`,
     [normalizedCode]
   );
+
+  const liveblocksClient = useMemo(
+    () => createClient({
+      authEndpoint: async (room) => {
+        const response = await fetch("/api/liveblocks-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room, userId: sessionId, name }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      },
+    }),
+    [name, sessionId]
+  );
+  const participantNames = [name, ...otherParticipantNames];
+
+  const saveRequest = async (input: RequestInfo | URL, init?: RequestInit) => {
+    setPendingSaves((pending) => pending + 1);
+    try {
+      return await fetch(input, init);
+    } finally {
+      setPendingSaves((pending) => Math.max(0, pending - 1));
+    }
+  };
 
   // Validate room on load
   useEffect(() => {
@@ -167,7 +298,8 @@ export default function RoomPage() {
           return;
         }
 
-        setMinutesLeft(Math.max(0, Math.floor((60 * 60 * 1000 - diff) / 60000)));
+        setMinutesLeft(Math.ceil((60 * 60 * 1000 - diff) / 60000));
+        setLastActivityAt(Date.now() - diff);
         setRoomStatus("active");
       } catch {
         setRoomStatus("notfound");
@@ -176,15 +308,58 @@ export default function RoomPage() {
     validate();
   }, [normalizedCode]);
 
-  // Load existing strokes and notes
+  useEffect(() => {
+    if (roomStatus !== "active" || lastActivityAt === null) return;
+
+    const updateCountdown = () => {
+      const remaining = lastActivityAt + 60 * 60 * 1000 - Date.now();
+      if (remaining <= 0) {
+        setMinutesLeft(0);
+        setRoomStatus("expired");
+        return;
+      }
+      setMinutesLeft(Math.ceil(remaining / 60000));
+    };
+
+    const interval = window.setInterval(updateCountdown, 10_000);
+    return () => window.clearInterval(interval);
+  }, [lastActivityAt, roomStatus]);
+
+  // Load the persisted board before realtime events arrive.
   useEffect(() => {
     if (roomStatus !== "active") return;
     async function loadData() {
       try {
-        const res = await fetch(`/api/rooms/${normalizedCode}/notes`);
-        if (res.ok) {
-          const data: PersistedNote[] = await res.json();
-          setNotes(data.map((note) => toStickyNote(note)));
+        const [notesResponse, strokesResponse] = await Promise.all([
+          fetch(`/api/rooms/${normalizedCode}/notes`),
+          fetch(`/api/rooms/${normalizedCode}/strokes`),
+        ]);
+
+        if (notesResponse.ok) {
+          const data: PersistedNote[] = await notesResponse.json();
+          const loadedNotes = data.map((note) => toStickyNote(note));
+          setNotes((current) => {
+            const currentById = new Map(current.map((note) => [note.id, note]));
+            const loadedIds = new Set(loadedNotes.map((note) => note.id));
+
+            return [
+              ...loadedNotes.map((note) => currentById.get(note.id) ?? note),
+              ...current.filter((note) => !loadedIds.has(note.id)),
+            ];
+          });
+        }
+        if (strokesResponse.ok) {
+          const data: CanvasStroke[] = await strokesResponse.json();
+          const loadedStrokes = data.map(toCanvasStroke);
+          setStrokes((current) => {
+            const currentById = new Map(current.map((stroke) => [stroke.id, stroke]));
+            const loadedIds = new Set(loadedStrokes.map((stroke) => stroke.id));
+
+            return [
+              ...loadedStrokes.map((stroke) => currentById.get(stroke.id) ?? stroke),
+              ...current.filter((stroke) => !loadedIds.has(stroke.id)),
+            ];
+          });
         }
       } catch {}
     }
@@ -192,7 +367,7 @@ export default function RoomPage() {
   }, [roomStatus, normalizedCode]);
 
   useEffect(() => {
-    if (roomStatus !== "active" || !liveblocksClient) return;
+    if (roomStatus !== "active") return;
 
     const { room, leave } = liveblocksClient.enterRoom<
       Record<string, never>,
@@ -202,9 +377,28 @@ export default function RoomPage() {
       normalizedCode,
       { initialPresence: {} }
     );
+    liveRoomRef.current = room;
 
     const unsubscribe = room.subscribe("event", ({ event }) => {
+      if (event.type === "stroke:create") {
+        setLastActivityAt(Date.now());
+        const incoming = toCanvasStroke(event.stroke);
+        setStrokes((previous) =>
+          previous.some((stroke) => stroke.id === incoming.id)
+            ? previous
+            : [...previous, incoming]
+        );
+      }
+
+      if (event.type === "stroke:delete") {
+        setLastActivityAt(Date.now());
+        setStrokes((previous) =>
+          previous.filter((stroke) => stroke.id !== event.stroke.id)
+        );
+      }
+
       if (event.type === "note:create" || event.type === "note:update") {
+        setLastActivityAt(Date.now());
         const incoming = toStickyNote(event.note);
 
         setNotes((prev) => {
@@ -220,27 +414,238 @@ export default function RoomPage() {
       }
 
       if (event.type === "note:delete") {
+        setLastActivityAt(Date.now());
         setNotes((prev) => prev.filter((note) => note.id !== event.note.id));
       }
+
+      if (event.type === "chat:message") {
+        setLastActivityAt(Date.now());
+        const incoming: Message = {
+          id: `${event.message.authorId}-${event.message.sentAt}`,
+          author: event.message.author,
+          text: event.message.text,
+          time: new Date(event.message.sentAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+        setMessages((previous) =>
+          previous.some((message) => message.id === incoming.id)
+            ? previous
+            : [...previous, incoming]
+        );
+      }
+    });
+    const unsubscribeOthers = room.subscribe("others", (others) => {
+      setParticipantCount(others.length + 1);
+      setOtherParticipantNames(
+        others.map((other) => {
+          const participantName = other.info?.name;
+          return typeof participantName === "string" && participantName.trim()
+            ? participantName
+            : "Guest";
+        })
+      );
     });
 
     return () => {
       unsubscribe();
+      unsubscribeOthers();
+      if (liveRoomRef.current === room) liveRoomRef.current = null;
       leave();
     };
-  }, [roomStatus, normalizedCode]);
+  }, [roomStatus, normalizedCode, liveblocksClient]);
 
-  const addNote = async () => {
+  const renderCanvas = useCallback((preview?: CanvasStroke) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (!canvas.clientWidth || !canvas.clientHeight) return;
+
+    const pixelRatio = window.devicePixelRatio || 1;
+    const width = Math.round(canvas.clientWidth * pixelRatio);
+    const height = Math.round(canvas.clientHeight * pixelRatio);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    context.setTransform(width / boardWidth, 0, 0, height / boardHeight, 0, 0);
+    context.clearRect(0, 0, boardWidth, boardHeight);
+    strokes.forEach((stroke) => drawStroke(context, stroke));
+    if (preview) drawStroke(context, preview);
+  }, [strokes]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    renderCanvas();
+    const observer = new ResizeObserver(() => renderCanvas());
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [renderCanvas, roomStatus]);
+
+  const toBoardPoint = (event: ReactPointerEvent<HTMLCanvasElement>): Point | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const bounds = canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return null;
+
+    return {
+      x: Math.min(boardWidth, Math.max(0, ((event.clientX - bounds.left) / bounds.width) * boardWidth)),
+      y: Math.min(boardHeight, Math.max(0, ((event.clientY - bounds.top) / bounds.height) * boardHeight)),
+    };
+  };
+
+  const startStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool !== "draw" || event.button !== 0) return;
+    const point = toBoardPoint(event);
+    if (!point) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const stroke: CanvasStroke = {
+      id: `pending-${event.pointerId}`,
+      roomId: normalizedCode,
+      points: [point],
+      color: isErasing ? "eraser" : brushColor,
+      thickness: brushThickness,
+      authorId: sessionId,
+      createdAt: new Date().toISOString(),
+    };
+    activeStrokeRef.current = { pointerId: event.pointerId, stroke };
+    renderCanvas(stroke);
+  };
+
+  const continueStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const active = activeStrokeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const point = toBoardPoint(event);
+    if (!point) return;
+
+    const previous = active.stroke.points.at(-1);
+    if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) < 1) return;
+    active.stroke.points.push(point);
+    renderCanvas(active.stroke);
+  };
+
+  const finishStroke = async (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const active = activeStrokeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    activeStrokeRef.current = null;
+
+    try {
+      const response = await saveRequest(`/api/rooms/${normalizedCode}/strokes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          points: active.stroke.points,
+          color: active.stroke.color,
+          thickness: active.stroke.thickness,
+          authorId: sessionId,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+
+      const saved: CanvasStroke = toCanvasStroke(await response.json());
+      setStrokes((previous) =>
+        previous.some((stroke) => stroke.id === saved.id)
+          ? previous
+          : [...previous, saved]
+      );
+      setUndoneStrokes([]);
+      setLastActivityAt(() => Date.now());
+    } catch (error) {
+      console.error("Could not save drawing:", error);
+      renderCanvas();
+    }
+  };
+
+  const cancelStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const active = activeStrokeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    activeStrokeRef.current = null;
+    renderCanvas();
+  };
+
+  const startPan = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool !== "pan" || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    boardPanRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: boardPan.x,
+      startY: boardPan.y,
+    };
+  };
+
+  const continuePan = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const active = boardPanRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    setBoardPan({
+      x: active.startX + event.clientX - active.startClientX,
+      y: active.startY + event.clientY - active.startClientY,
+    });
+  };
+
+  const finishPan = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const active = boardPanRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    boardPanRef.current = null;
+  };
+
+  const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool === "draw") startStroke(event);
+    if (tool === "pan") startPan(event);
+    if (tool === "note") {
+      const point = toBoardPoint(event);
+      if (point) void addNote(point);
+    }
+  };
+
+  const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool === "draw") continueStroke(event);
+    if (tool === "pan") continuePan(event);
+  };
+
+  const handleCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool === "draw") void finishStroke(event);
+    if (tool === "pan") finishPan(event);
+  };
+
+  const handleCanvasPointerCancel = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool === "draw") cancelStroke(event);
+    if (tool === "pan") finishPan(event);
+  };
+
+  const addNote = async (point?: Point) => {
     const draft = {
       text: "New thought",
       color: noteColor,
-      x: Math.round(40 + Math.random() * 20),
-      y: Math.round(30 + Math.random() * 20),
+      x: point
+        ? clampNotePosition((point.x / boardWidth) * 100, 85)
+        : Math.round(40 + Math.random() * 20),
+      y: point
+        ? clampNotePosition((point.y / boardHeight) * 100, 80)
+        : Math.round(30 + Math.random() * 20),
       rotate: Math.random() * 4 - 2,
     };
 
     try {
-      const res = await fetch(`/api/rooms/${normalizedCode}/notes`, {
+      const res = await saveRequest(`/api/rooms/${normalizedCode}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -264,6 +669,7 @@ export default function RoomPage() {
           ? prev
           : [...prev, newNote]
       );
+      setLastActivityAt(() => Date.now());
     } catch (error) {
       console.error("Could not create note:", error);
     }
@@ -271,7 +677,7 @@ export default function RoomPage() {
 
   const deleteNote = async (id: string) => {
     try {
-      const res = await fetch(`/api/rooms/${normalizedCode}/notes/${id}?authorId=${sessionId}`, {
+      const res = await saveRequest(`/api/rooms/${normalizedCode}/notes/${id}?authorId=${sessionId}`, {
         method: "DELETE",
       });
 
@@ -281,6 +687,7 @@ export default function RoomPage() {
 
       setNotes((prev) => prev.filter((note) => note.id !== id));
       setSelectedNoteId((selectedId) => selectedId === id ? null : selectedId);
+      setLastActivityAt(Date.now());
     } catch (error) {
       console.error("Could not delete note:", error);
     }
@@ -288,7 +695,7 @@ export default function RoomPage() {
 
   const saveNotePosition = async (drag: NoteDrag) => {
     try {
-      const res = await fetch(`/api/rooms/${normalizedCode}/notes/${drag.id}`, {
+      const res = await saveRequest(`/api/rooms/${normalizedCode}/notes/${drag.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -310,6 +717,7 @@ export default function RoomPage() {
             : note
         )
       );
+      setLastActivityAt(() => Date.now());
     } catch (error) {
       console.error("Could not move note:", error);
       setNotes((prev) =>
@@ -327,7 +735,7 @@ export default function RoomPage() {
     if (!note || note.authorId !== sessionId || note.color === color) return;
 
     try {
-      const res = await fetch(`/api/rooms/${normalizedCode}/notes/${id}`, {
+      const res = await saveRequest(`/api/rooms/${normalizedCode}/notes/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ color, authorId: sessionId }),
@@ -345,6 +753,7 @@ export default function RoomPage() {
             : candidate
         )
       );
+      setLastActivityAt(() => Date.now());
     } catch (error) {
       console.error("Could not change note color:", error);
     }
@@ -427,20 +836,146 @@ export default function RoomPage() {
     );
   };
 
+  const undoLastStroke = async () => {
+    const stroke = [...strokes]
+      .reverse()
+      .find((candidate) => candidate.authorId === sessionId);
+    if (!stroke) return;
+
+    try {
+      const response = await saveRequest(
+        `/api/rooms/${normalizedCode}/strokes/${stroke.id}?authorId=${sessionId}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) throw new Error(await response.text());
+
+      setStrokes((previous) => previous.filter((candidate) => candidate.id !== stroke.id));
+      setUndoneStrokes((previous) => [...previous, stroke]);
+      setLastActivityAt(Date.now());
+    } catch (error) {
+      console.error("Could not undo drawing:", error);
+    }
+  };
+
+  const redoLastStroke = async () => {
+    const stroke = undoneStrokes.at(-1);
+    if (!stroke) return;
+
+    try {
+      const response = await saveRequest(`/api/rooms/${normalizedCode}/strokes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          points: stroke.points,
+          color: stroke.color,
+          thickness: stroke.thickness,
+          authorId: sessionId,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+
+      const saved = toCanvasStroke(await response.json() as CanvasStroke);
+      setStrokes((previous) =>
+        previous.some((candidate) => candidate.id === saved.id)
+          ? previous
+          : [...previous, saved]
+      );
+      setUndoneStrokes((previous) => previous.slice(0, -1));
+      setLastActivityAt(Date.now());
+    } catch (error) {
+      console.error("Could not redo drawing:", error);
+    }
+  };
+
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPng = (includeNotes: boolean) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = boardWidth;
+    canvas.height = boardHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    context.fillStyle = "#faf6ff";
+    context.fillRect(0, 0, boardWidth, boardHeight);
+    strokes.forEach((stroke) => drawStroke(context, stroke, "#faf6ff"));
+
+    if (includeNotes) {
+      const noteWidth = 260;
+      const noteHeight = 260;
+      for (const note of notes) {
+        const x = (note.x / 100) * boardWidth;
+        const y = (note.y / 100) * boardHeight;
+        context.save();
+        context.translate(x + noteWidth / 2, y + noteHeight / 2);
+        context.rotate((note.rotate * Math.PI) / 180);
+        context.fillStyle = noteExportColors[note.color];
+        context.fillRect(-noteWidth / 2, -noteHeight / 2, noteWidth, noteHeight);
+        context.fillStyle = "#3a2060";
+        context.font = "28px Kalam, cursive";
+        context.textBaseline = "top";
+
+        const words = note.text.split(/\s+/);
+        const lines: string[] = [];
+        let line = "";
+        for (const word of words) {
+          const candidate = line ? `${line} ${word}` : word;
+          if (context.measureText(candidate).width > noteWidth - 40 && line) {
+            lines.push(line);
+            line = word;
+          } else {
+            line = candidate;
+          }
+        }
+        if (line) lines.push(line);
+        lines.slice(0, 7).forEach((line, index) => {
+          context.fillText(line, -noteWidth / 2 + 20, -noteHeight / 2 + 32 + index * 34);
+        });
+        context.restore();
+      }
+    }
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        downloadBlob(blob, `${roomName.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "huddle"}${includeNotes ? "-with-notes" : ""}.png`);
+      }
+    }, "image/png");
+  };
+
   const sendMessage = (e: FormEvent) => {
     e.preventDefault();
     const clean = message.trim();
     if (!clean) return;
     const now = new Date();
+    const chatMessage = {
+      authorId: sessionId,
+      author: name,
+      text: clean,
+      sentAt: now.toISOString(),
+    };
     setMessages((prev) => [
       ...prev,
       {
-        id: Date.now(),
-        author: name,
-        text: clean,
+        id: `${chatMessage.authorId}-${chatMessage.sentAt}`,
+        author: chatMessage.author,
+        text: chatMessage.text,
         time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       },
     ]);
+    try {
+      liveRoomRef.current?.broadcastEvent({ type: "chat:message", message: chatMessage });
+    } catch (error) {
+      console.error("Could not send chat message:", error);
+    }
+    setLastActivityAt(Date.now());
+    void saveRequest(`/api/rooms/${normalizedCode}`).catch(() => undefined);
     setMessage("");
   };
 
@@ -471,9 +1006,10 @@ export default function RoomPage() {
               <h1 className="truncate font-mono text-base font-semibold md:text-lg">
                 {roomName}
               </h1>
-              <ChevronDown className="size-4 text-muted-foreground" />
             </div>
-            <p className="text-[11px] text-muted-foreground">✓ Saved</p>
+            <p className="text-[11px] text-muted-foreground">
+              {pendingSaves > 0 ? "Saving..." : "✓ Saved"}
+            </p>
           </div>
         </div>
 
@@ -488,20 +1024,24 @@ export default function RoomPage() {
               Expires in {minutesLeft} min
             </span>
           )}
-          <div className="hidden -space-x-2 sm:flex">
-            {[
-              ["bg-avatar-one", name.slice(0, 2).toUpperCase()],
-            ].map(([bg, initials]) => (
+          <div className="flex -space-x-2">
+            {participantNames.slice(0, 3).map((participantName, index) => (
               <span
-                key={initials}
+                key={`${participantName}-${index}`}
+                title={participantName}
                 className={cn(
                   "grid size-8 place-items-center rounded-full border-2 border-chrome text-[10px] font-bold text-white",
-                  bg
+                  ["bg-avatar-one", "bg-avatar-two", "bg-avatar-three"][index]
                 )}
               >
-                {initials}
+                {toInitials(participantName)}
               </span>
             ))}
+            {participantNames.length > 3 && (
+              <span className="grid size-8 place-items-center rounded-full border-2 border-chrome bg-primary text-[10px] font-bold text-primary-foreground">
+                +{participantNames.length - 3}
+              </span>
+            )}
           </div>
 
           <Button size="sm" onClick={() => setInviteOpen(true)}>
@@ -535,16 +1075,42 @@ export default function RoomPage() {
         className="dot-grid relative h-[calc(100dvh-4rem)] overflow-hidden"
         aria-label="Collaborative canvas"
       >
-        {/* Notes layer */}
         <div
           className="absolute inset-0 origin-center transition-transform duration-200"
-          style={{ transform: `scale(${zoom / 100})` }}
+          style={{
+            transform: `translate(${boardPan.x}px, ${boardPan.y}px) scale(${zoom / 100})`,
+          }}
+        >
+        <canvas
+          ref={canvasRef}
+          className={cn(
+            "absolute inset-0 size-full touch-none",
+            tool === "draw"
+              ? "cursor-crosshair"
+              : tool === "pan"
+                ? "cursor-grab"
+                : tool === "note"
+                  ? "cursor-copy"
+                  : "pointer-events-none"
+          )}
+          aria-label="Drawing surface"
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handleCanvasPointerMove}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={handleCanvasPointerCancel}
+        />
+
+        {/* Notes layer */}
+        {showNotes && (
+        <div
+          className="pointer-events-none absolute inset-0"
         >
           {notes.map((note) => (
             <article
               key={note.id}
               className={cn(
-                "group absolute flex aspect-square w-32 items-start p-4 font-note text-base leading-snug shadow-note transition-transform md:w-40 md:p-5",
+                "pointer-events-auto group absolute flex aspect-square w-32 items-start p-4 font-note text-base leading-snug shadow-note transition-transform md:w-40 md:p-5",
+                tool === "pan" && "pointer-events-none",
                 `note-${note.color}`
               )}
               style={{
@@ -563,17 +1129,32 @@ export default function RoomPage() {
               />
               <textarea
                 className="h-full w-full resize-none bg-transparent font-note text-sm leading-snug outline-none placeholder:text-current/50"
-                defaultValue={note.text}
+                value={noteDrafts[note.id] ?? note.text}
                 placeholder="Write something..."
                 readOnly={note.authorId !== sessionId}
                 onFocus={() => setSelectedNoteId(note.id)}
+                onChange={(event) => {
+                  if (note.authorId !== sessionId) return;
+                  const draftText = event.currentTarget.value;
+                  setNoteDrafts((drafts) => ({
+                    ...drafts,
+                    [note.id]: draftText,
+                  }));
+                }}
                 onBlur={async (e) => {
                   const newText = e.currentTarget.value.trim();
 
-                  if (!newText || newText === note.text) return;
+                  if (!newText || newText === note.text) {
+                    setNoteDrafts((drafts) => {
+                      const nextDrafts = { ...drafts };
+                      delete nextDrafts[note.id];
+                      return nextDrafts;
+                    });
+                    return;
+                  }
 
                   try {
-                    const res = await fetch(
+                    const res = await saveRequest(
                       `/api/rooms/${normalizedCode}/notes/${note.id}`,
                       {
                         method: "PATCH",
@@ -596,9 +1177,19 @@ export default function RoomPage() {
                         n.id === note.id ? { ...n, text: saved.text } : n
                       )
                     );
+                    setLastActivityAt(Date.now());
+                    setNoteDrafts((drafts) => {
+                      const nextDrafts = { ...drafts };
+                      delete nextDrafts[note.id];
+                      return nextDrafts;
+                    });
                   } catch (error) {
                     console.error("Could not save note:", error);
-                    e.currentTarget.value = note.text;
+                    setNoteDrafts((drafts) => {
+                      const nextDrafts = { ...drafts };
+                      delete nextDrafts[note.id];
+                      return nextDrafts;
+                    });
                   }
                 }}
               />
@@ -615,6 +1206,8 @@ export default function RoomPage() {
               )}
             </article>
           ))}
+        </div>
+        )}
         </div>
 
         {/* Zoom controls — bottom left */}
@@ -660,35 +1253,120 @@ export default function RoomPage() {
             </Button>
           ))}
           <span className="mx-1 h-6 w-px shrink-0 bg-border" />
-          <div className="flex gap-1 px-1" aria-label="Note color">
+          <div
+            className="flex gap-1 px-1"
+            aria-label={tool === "draw" ? "Brush color" : "Note color"}
+          >
             {(["yellow", "pink", "mint", "blue"] as NoteColor[]).map((c) => (
               <button
                 key={c}
-                aria-label={`${c} note`}
+                aria-label={`${c} ${tool === "draw" ? "ink" : "note"}`}
+                title={`${c} ${tool === "draw" ? "ink" : "note"}`}
                 onClick={() => {
-                  setNoteColor(c);
-                  if (selectedNoteId) void updateNoteColor(selectedNoteId, c);
+                  if (tool === "draw") {
+                    setBrushColor(brushPalette[c]);
+                    setIsErasing(false);
+                  } else {
+                    setNoteColor(c);
+                    if (selectedNoteId) void updateNoteColor(selectedNoteId, c);
+                  }
                 }}
                 className={cn(
                   "size-5 shrink-0 rounded-full border-2 border-chrome ring-offset-2 ring-offset-chrome transition-transform active:scale-95",
                   `swatch-${c}`,
-                  noteColor === c && "ring-2 ring-ring"
+                  (tool === "draw"
+                    ? brushColor === brushPalette[c] && !isErasing
+                    : noteColor === c) && "ring-2 ring-ring"
                 )}
               />
             ))}
           </div>
-          <Button size="icon" onClick={addNote} aria-label="Add sticky note">
+          {tool === "draw" && (
+            <>
+              <div className="flex gap-1 px-1" aria-label="Brush size">
+                {brushSizes.map((size) => (
+                  <Button
+                    key={size}
+                    variant={brushThickness === size ? "toolActive" : "ghost"}
+                    size="icon"
+                    className="size-7"
+                    aria-label={`${size}px brush`}
+                    title={`${size}px brush`}
+                    onClick={() => setBrushThickness(size)}
+                  >
+                    <span
+                      className="rounded-full bg-current"
+                      style={{ width: Math.max(4, size + 1), height: Math.max(4, size + 1) }}
+                    />
+                  </Button>
+                ))}
+              </div>
+              <Button
+                variant={isErasing ? "toolActive" : "ghost"}
+                size="icon"
+                aria-label="Eraser"
+                title="Eraser"
+                onClick={() => setIsErasing((active) => !active)}
+              >
+                <Eraser />
+              </Button>
+            </>
+          )}
+          <Button size="icon" onClick={() => void addNote()} aria-label="Add sticky note">
             <Plus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={showNotes ? "Hide sticky notes" : "Show sticky notes"}
+            title={showNotes ? "Hide sticky notes" : "Show sticky notes"}
+            onClick={() => setShowNotes((visible) => !visible)}
+          >
+            {showNotes ? <EyeOff /> : <Eye />}
           </Button>
         </div>
 
         {/* Right controls — bottom right */}
         <div className="floating-control absolute bottom-5 right-3 hidden items-center gap-1 p-1.5 md:bottom-6 md:right-4 md:flex">
-          <Button variant="ghost" size="icon" aria-label="Undo"><Undo2 /></Button>
-          <Button variant="ghost" size="icon" aria-label="Redo"><Redo2 /></Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Undo your last drawing"
+            title="Undo your last drawing"
+            disabled={!strokes.some((stroke) => stroke.authorId === sessionId)}
+            onClick={() => void undoLastStroke()}
+          >
+            <Undo2 />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Redo your last drawing"
+            title="Redo your last drawing"
+            disabled={undoneStrokes.length === 0}
+            onClick={() => void redoLastStroke()}
+          >
+            <Redo2 />
+          </Button>
           <span className="mx-1 h-6 w-px bg-border" />
-          <Button variant="ghost" size="icon" aria-label="Download"><Download /></Button>
-          <Button variant="ghost" size="icon" aria-label="People"><Users /></Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Export board"
+            title="Export board"
+            onClick={() => setExportOpen(true)}
+          >
+            <Download />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`${participantCount} ${participantCount === 1 ? "person" : "people"} in room`}
+            title={`${participantCount} ${participantCount === 1 ? "person" : "people"} in room`}
+            onClick={() => setPeopleOpen(true)}
+          >
+            <Users />
+          </Button>
           <Button
             variant={chatOpen ? "toolActive" : "ghost"}
             size="icon"
@@ -698,6 +1376,51 @@ export default function RoomPage() {
             <MessageCircle />
           </Button>
         </div>
+
+        <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+          <DialogContent className="max-w-sm rounded-lg border-0 p-7 shadow-paper">
+            <DialogHeader>
+              <DialogTitle className="font-mono text-2xl">Export huddle</DialogTitle>
+              <DialogDescription>
+                Save the board before this temporary room disappears.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Button onClick={() => exportPng(false)}>Board as PNG</Button>
+              <Button onClick={() => exportPng(true)}>Board and notes as PNG</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={peopleOpen} onOpenChange={setPeopleOpen}>
+          <DialogContent className="max-w-sm rounded-lg border-0 p-7 shadow-paper">
+            <DialogHeader>
+              <DialogTitle className="font-mono text-2xl">In this huddle</DialogTitle>
+              <DialogDescription>
+                Presence updates live while this room is open.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="grid gap-2">
+              <li className="flex items-center justify-between rounded-md bg-secondary p-3 text-sm">
+                <span className="font-medium">{name}</span>
+                <span className="text-xs text-muted-foreground">You</span>
+              </li>
+              {otherParticipantNames.map((participantName, index) => (
+                <li
+                  key={`${participantName}-${index}`}
+                  className="rounded-md bg-secondary p-3 text-sm"
+                >
+                  {participantName}
+                </li>
+              ))}
+              {participantCount === 1 && (
+                <li className="rounded-md bg-secondary p-3 text-sm text-muted-foreground">
+                  Invite someone when you’re ready.
+                </li>
+              )}
+            </ul>
+          </DialogContent>
+        </Dialog>
 
         {/* Mobile chat button */}
         <Button
