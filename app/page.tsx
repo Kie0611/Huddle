@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowDownRight, ArrowRight, Clock3, MousePointer2,
@@ -13,13 +14,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-type EntryMode = "create" | "join" | null;
+type EntryMode = "create" | "join";
 
 function HuddleMark() {
   return (
-    <div className="grid size-9 rotate-[-4deg] place-items-center rounded-sm bg-landing-pop font-display text-sm font-bold text-landing-ink shadow-playful">
-      H
-    </div>
+    <span className="relative block size-9 shrink-0" aria-hidden="true">
+      <Image
+        src="/huddle-logo.png"
+        alt=""
+        fill
+        sizes="36px"
+        className="object-contain"
+        priority
+      />
+    </span>
   );
 }
 
@@ -68,13 +76,20 @@ function WorkspaceScene() {
 
 export default function HuddleHome() {
   const router = useRouter();
-  const [entryMode, setEntryMode] = useState<EntryMode>(null);
+  const [entryMode, setEntryMode] = useState<EntryMode>("create");
+  const [entryOpen, setEntryOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [roomName, setRoomName] = useState("");
   const [joinName, setJoinName] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const openEntry = (mode: EntryMode) => {
+    setEntryMode(mode);
+    setEntryOpen(true);
+    setError("");
+  };
 
   const createRoom = async (e: FormEvent) => {
     e.preventDefault();
@@ -138,7 +153,7 @@ export default function HuddleHome() {
             <a href="#how-it-works" className="transition-colors hover:text-landing-pop">How it works</a>
             <a href="#use-cases" className="transition-colors hover:text-landing-pop">Use cases</a>
           </nav>
-          <Button size="sm" variant="landingSoft" onClick={() => { setEntryMode("join"); setError(""); }}>
+          <Button size="sm" variant="landingSoft" onClick={() => openEntry("join")}>
             Join room
           </Button>
         </header>
@@ -153,10 +168,10 @@ export default function HuddleHome() {
               A temporary canvas for the thoughts that need other people. Sketch, stick, react, decide — then leave the clutter behind.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button size="lg" variant="landingPop" onClick={() => { setEntryMode("create"); setError(""); }}>
+              <Button size="lg" variant="landingPop" onClick={() => openEntry("create")}>
                 <Plus /> Create room
               </Button>
-              <Button size="lg" variant="landingOutline" onClick={() => { setEntryMode("join"); setError(""); }}>
+              <Button size="lg" variant="landingOutline" onClick={() => openEntry("join")}>
                 Join with a code <ArrowRight />
               </Button>
             </div>
@@ -235,7 +250,7 @@ export default function HuddleHome() {
             <h2 className="mt-6 font-display text-4xl font-bold leading-tight sm:text-5xl">
               Every conversation deserves somewhere to land.
             </h2>
-            <Button className="mt-8" variant="landingPop" size="lg" onClick={() => { setEntryMode("create"); setError(""); }}>
+            <Button className="mt-8" variant="landingPop" size="lg" onClick={() => openEntry("create")}>
               Start a Huddle <ArrowRight />
             </Button>
           </div>
@@ -265,7 +280,7 @@ export default function HuddleHome() {
               </h2>
             </div>
           </div>
-          <Button size="lg" variant="landingDark" onClick={() => { setEntryMode("create"); setError(""); }}>
+          <Button size="lg" variant="landingDark" onClick={() => openEntry("create")}>
             Create room <ArrowRight />
           </Button>
         </div>
@@ -274,15 +289,24 @@ export default function HuddleHome() {
       {/* Footer */}
       <footer className="bg-landing-ink px-5 py-8 text-landing-soft lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <span className="flex items-center gap-3 font-display font-bold">
-            <HuddleMark /> Huddle
-          </span>
           <span className="text-landing-soft/55">Make room for the idea.</span>
+
+          <p className="font-mono text-[10px] uppercase">
+            Built by{" "}
+            <a
+              href="https://github.com/Kie0611"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-landing-pop hover:underline"
+            >
+              Kean
+            </a>
+          </p>
         </div>
       </footer>
 
       {/* Entry dialog */}
-      <Dialog open={entryMode !== null} onOpenChange={(open) => { if (!open) { setEntryMode(null); setError(""); } }}>
+      <Dialog open={entryOpen} onOpenChange={(open) => { setEntryOpen(open); if (!open) setError(""); }}>
         <DialogContent className="max-w-md rounded-md border-2 border-landing-ink p-0 shadow-playful-lg overflow-visible">
           <div className="rounded-t-md border-b-2 border-landing-ink bg-landing-soft p-6">
             <DialogHeader>

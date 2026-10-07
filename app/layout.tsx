@@ -22,7 +22,7 @@ const kalam = Kalam({
 });
 
 export const metadata: Metadata = {
-  title: "Huddle | A playful canvas for fast collaboration",
+  title: "Huddle | Shared canvas",
   description:
     "Open a temporary Huddle canvas, share the code, and turn scattered ideas into shared direction.",
 };
