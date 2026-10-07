@@ -135,6 +135,10 @@
     background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
     background-size: 24px 24px;
   }
+  .canvas-board-frame {
+    position: absolute;
+    inset: 0;
+  }
   .note-yellow { background: var(--note-yellow); }
   .note-pink { background: var(--note-pink); }
   .note-mint { background: var(--note-mint); }
@@ -153,6 +157,17 @@
   .step-ink { background: var(--landing-ink); color: var(--landing-soft); }
   .use-tile:nth-child(1), .use-tile:nth-child(4) { background: var(--landing-soft); }
   .use-tile:nth-child(2), .use-tile:nth-child(3) { background: var(--landing-pop); }
+}
+
+@media (max-width: 767px) {
+  .canvas-board-frame {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: max(100%, calc((100dvh - 4rem) * 1.7777778));
+    aspect-ratio: 16 / 9;
+    transform: translate(-50%, -50%);
+  }
 }
 
 @keyframes workspace-in {
