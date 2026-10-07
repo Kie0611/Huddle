@@ -4,13 +4,15 @@ import {
   useState, useMemo, useEffect, useRef, useCallback,
   type FormEvent, type PointerEvent as ReactPointerEvent,
 } from "react";
+import Image from "next/image";
+import { createPortal } from "react-dom";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@liveblocks/client";
 import {
   Copy, Download, Hand, MessageCircle,
   Eraser, Eye, EyeOff, MousePointer2, Pencil, Plus, Redo2, Send, Share2, StickyNote,
-  Undo2, Users, X, ZoomIn, ZoomOut,
+  LogOut, Undo2, Users, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,7 +74,9 @@ type NoteDrag = {
 const boardWidth = 1920;
 const boardHeight = 1080;
 const defaultBrushColor = "#3a2060";
-const brushSizes = [2, 4, 8] as const;
+const minBrushThickness = 4;
+const maxBrushThickness = 20;
+const defaultBrushPercent = 35;
 const brushPalette: Record<NoteColor, string> = {
   yellow: "#d97706",
   pink: "#db2777",
@@ -166,11 +170,18 @@ function drawStroke(
   context.restore();
 }
 
-function Logo() {
+function Logo({ className = "size-9", sizes = "36px" }: { className?: string; sizes?: string }) {
   return (
-    <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary font-mono text-lg font-bold text-primary-foreground">
-      H
-    </div>
+    <span className={cn("relative block shrink-0", className)} aria-hidden="true">
+      <Image
+        src="/huddle-logo.png"
+        alt=""
+        fill
+        sizes={sizes}
+        className="object-contain"
+        priority
+      />
+    </span>
   );
 }
 
@@ -179,7 +190,7 @@ function EmptyRoomState({ expired }: { expired: boolean }) {
   return (
     <main className="grid min-h-dvh place-items-center bg-background px-5 text-center">
       <div className="flex max-w-md flex-col items-center">
-        <Logo />
+        <Logo className="size-24" sizes="96px" />
         <h1 className="mt-7 font-mono text-4xl font-semibold">
           {expired ? "This room has expired" : "Room not found"}
         </h1>
@@ -199,6 +210,7 @@ function EmptyRoomState({ expired }: { expired: boolean }) {
 export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const name = searchParams.get("name") ?? "Guest";
   const roomName = searchParams.get("room") ?? "Untitled huddle";
   const normalizedCode = code;
@@ -207,7 +219,9 @@ export default function RoomPage() {
   const [tool, setTool] = useState<Tool>("draw");
   const [noteColor, setNoteColor] = useState<NoteColor>("yellow");
   const [brushColor, setBrushColor] = useState(defaultBrushColor);
-  const [brushThickness, setBrushThickness] = useState<number>(4);
+  const [brushPercent, setBrushPercent] = useState(defaultBrushPercent);
+  const [brushSizeOpen, setBrushSizeOpen] = useState(false);
+  const [brushCursorActive, setBrushCursorActive] = useState(false);
   const [isErasing, setIsErasing] = useState(false);
   const [notes, setNotes] = useState<StickyNote[]>([]);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
@@ -229,11 +243,22 @@ export default function RoomPage() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [participantCount, setParticipantCount] = useState(1);
   const [otherParticipantNames, setOtherParticipantNames] = useState<string[]>([]);
+  const [presenceNotice, setPresenceNotice] = useState<string | null>(null);
+  const [brushSizePanelPosition, setBrushSizePanelPosition] = useState<{ left: number; top: number } | null>(null);
+  const brushThickness = Math.round(
+    minBrushThickness + ((maxBrushThickness - minBrushThickness) * brushPercent) / 100
+  );
+  const brushTipSize = 8 + (20 * brushPercent) / 100;
   const noteDragRef = useRef<NoteDrag | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasAreaRef = useRef<HTMLElement | null>(null);
   const activeStrokeRef = useRef<ActiveStroke | null>(null);
   const boardPanRef = useRef<BoardPan | null>(null);
   const liveRoomRef = useRef<RealtimeRoom | null>(null);
+  const previousOthersRef = useRef<Map<string, string> | null>(null);
+  const brushSizeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const brushCursorRef = useRef<HTMLDivElement | null>(null);
+  const brushCursorPositionRef = useRef<Point | null>(null);
 
   const sessionId = useMemo(() => {
     if (typeof window === "undefined") return "guest";
@@ -261,10 +286,20 @@ export default function RoomPage() {
         if (!response.ok) throw new Error(await response.text());
         return response.json();
       },
+      badgeLocation: "top-left",
     }),
     [name, sessionId]
   );
   const participantNames = [name, ...otherParticipantNames];
+
+  const leaveCanvas = () => {
+    router.push("/");
+  };
+
+  const toggleBrushSize = () => {
+    setBrushSizePanelPosition(null);
+    setBrushSizeOpen((open) => !open);
+  };
 
   const saveRequest = async (input: RequestInfo | URL, init?: RequestInit) => {
     setPendingSaves((pending) => pending + 1);
@@ -325,6 +360,37 @@ export default function RoomPage() {
     return () => window.clearInterval(interval);
   }, [lastActivityAt, roomStatus]);
 
+  useEffect(() => {
+    if (!presenceNotice) return;
+
+    const timeout = window.setTimeout(() => setPresenceNotice(null), 3200);
+    return () => window.clearTimeout(timeout);
+  }, [presenceNotice]);
+
+  useEffect(() => {
+    if (!brushSizeOpen) return;
+
+    const updateBrushSizePanelPosition = () => {
+      const button = brushSizeButtonRef.current;
+      if (!button) return;
+
+      const bounds = button.getBoundingClientRect();
+      setBrushSizePanelPosition({
+        left: bounds.left + bounds.width / 2,
+        top: bounds.top - 8,
+      });
+    };
+
+    updateBrushSizePanelPosition();
+    window.addEventListener("resize", updateBrushSizePanelPosition);
+    window.addEventListener("scroll", updateBrushSizePanelPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updateBrushSizePanelPosition);
+      window.removeEventListener("scroll", updateBrushSizePanelPosition, true);
+    };
+  }, [brushSizeOpen]);
+
   // Load the persisted board before realtime events arrive.
   useEffect(() => {
     if (roomStatus !== "active") return;
@@ -368,6 +434,8 @@ export default function RoomPage() {
 
   useEffect(() => {
     if (roomStatus !== "active") return;
+
+    previousOthersRef.current = null;
 
     const { room, leave } = liveblocksClient.enterRoom<
       Record<string, never>,
@@ -437,21 +505,51 @@ export default function RoomPage() {
       }
     });
     const unsubscribeOthers = room.subscribe("others", (others) => {
-      setParticipantCount(others.length + 1);
-      setOtherParticipantNames(
+      const currentOthers = new Map(
         others.map((other) => {
           const participantName = other.info?.name;
-          return typeof participantName === "string" && participantName.trim()
-            ? participantName
-            : "Guest";
+          const displayName =
+            typeof participantName === "string" && participantName.trim()
+              ? participantName
+              : "Guest";
+          return [String(other.connectionId), displayName] as const;
         })
       );
+      const previousOthers = previousOthersRef.current;
+
+      if (previousOthers) {
+        const joinedNames = [...currentOthers.entries()]
+          .filter(([connectionId]) => !previousOthers.has(connectionId))
+          .map(([, participantName]) => participantName);
+        const leftNames = [...previousOthers.entries()]
+          .filter(([connectionId]) => !currentOthers.has(connectionId))
+          .map(([, participantName]) => participantName);
+
+        if (joinedNames.length > 0) {
+          setPresenceNotice(
+            joinedNames.length === 1
+              ? `${joinedNames[0]} joined the canvas`
+              : `${joinedNames.length} people joined the canvas`
+          );
+        } else if (leftNames.length > 0) {
+          setPresenceNotice(
+            leftNames.length === 1
+              ? `${leftNames[0]} left the canvas`
+              : `${leftNames.length} people left the canvas`
+          );
+        }
+      }
+
+      previousOthersRef.current = currentOthers;
+      setParticipantCount(others.length + 1);
+      setOtherParticipantNames([...currentOthers.values()]);
     });
 
     return () => {
       unsubscribe();
       unsubscribeOthers();
       if (liveRoomRef.current === room) liveRoomRef.current = null;
+      previousOthersRef.current = null;
       leave();
     };
   }, [roomStatus, normalizedCode, liveblocksClient]);
@@ -500,6 +598,33 @@ export default function RoomPage() {
       y: Math.min(boardHeight, Math.max(0, ((event.clientY - bounds.top) / bounds.height) * boardHeight)),
     };
   };
+
+  const updateBrushCursor = useCallback(
+    (clientX: number, clientY: number, show = true) => {
+      brushCursorPositionRef.current = { x: clientX, y: clientY };
+
+      const cursor = brushCursorRef.current;
+      const canvas = canvasRef.current;
+      if (!cursor || !canvas) return;
+
+      const bounds = canvas.getBoundingClientRect();
+      const areaBounds = canvasAreaRef.current?.getBoundingClientRect();
+      const screenScale = bounds.width > 0 ? bounds.width / boardWidth : 1;
+      const size = Math.max(8, brushThickness * screenScale);
+      cursor.style.left = `${clientX - (areaBounds?.left ?? 0)}px`;
+      cursor.style.top = `${clientY - (areaBounds?.top ?? 0)}px`;
+      cursor.style.width = `${size}px`;
+      cursor.style.height = `${size}px`;
+      if (show) cursor.style.opacity = "1";
+    },
+    [brushThickness]
+  );
+
+  useEffect(() => {
+    const position = brushCursorPositionRef.current;
+    if (!position || !brushCursorRef.current) return;
+    updateBrushCursor(position.x, position.y, false);
+  }, [boardPan.x, boardPan.y, brushThickness, updateBrushCursor, zoom]);
 
   const startStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (tool !== "draw" || event.button !== 0) return;
@@ -608,7 +733,11 @@ export default function RoomPage() {
   };
 
   const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (tool === "draw") startStroke(event);
+    if (tool === "draw") {
+      setBrushCursorActive(true);
+      updateBrushCursor(event.clientX, event.clientY);
+      startStroke(event);
+    }
     if (tool === "pan") startPan(event);
     if (tool === "note") {
       const point = toBoardPoint(event);
@@ -617,8 +746,24 @@ export default function RoomPage() {
   };
 
   const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (tool === "draw") continueStroke(event);
+    if (tool === "draw") {
+      setBrushCursorActive(true);
+      updateBrushCursor(event.clientX, event.clientY);
+      continueStroke(event);
+    }
     if (tool === "pan") continuePan(event);
+  };
+
+  const handleCanvasPointerEnter = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (tool === "draw") {
+      setBrushCursorActive(true);
+      updateBrushCursor(event.clientX, event.clientY);
+    }
+  };
+
+  const handleCanvasPointerLeave = () => {
+    setBrushCursorActive(false);
+    if (brushCursorRef.current) brushCursorRef.current.style.opacity = "0";
   };
 
   const handleCanvasPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1048,6 +1193,16 @@ export default function RoomPage() {
             <Share2 /> <span className="hidden sm:inline">Invite</span>
           </Button>
 
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={leaveCanvas}
+            aria-label="Leave canvas"
+            title="Leave canvas"
+          >
+            <LogOut /> <span className="hidden lg:inline">Leave</span>
+          </Button>
+
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
             <DialogContent className="max-w-sm rounded-lg border-0 p-7 shadow-paper">
               <DialogHeader className="items-center text-center">
@@ -1070,23 +1225,35 @@ export default function RoomPage() {
         </div>
       </header>
 
+      {presenceNotice && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-20 z-40 -translate-x-1/2 rounded-full border border-border bg-chrome/95 px-4 py-2 text-xs font-semibold text-foreground shadow-paper"
+          role="status"
+          aria-live="polite"
+        >
+          {presenceNotice}
+        </div>
+      )}
+
       {/* Canvas area */}
       <section
+        ref={canvasAreaRef}
         className="dot-grid relative h-[calc(100dvh-4rem)] overflow-hidden"
         aria-label="Collaborative canvas"
       >
-        <div
-          className="absolute inset-0 origin-center transition-transform duration-200"
-          style={{
-            transform: `translate(${boardPan.x}px, ${boardPan.y}px) scale(${zoom / 100})`,
-          }}
-        >
+        <div className="canvas-board-frame">
+          <div
+            className="absolute inset-0 origin-center transition-transform duration-200"
+            style={{
+              transform: `translate(${boardPan.x}px, ${boardPan.y}px) scale(${zoom / 100})`,
+            }}
+          >
         <canvas
           ref={canvasRef}
           className={cn(
             "absolute inset-0 size-full touch-none",
             tool === "draw"
-              ? "cursor-crosshair"
+              ? brushCursorActive ? "cursor-none" : "cursor-crosshair"
               : tool === "pan"
                 ? "cursor-grab"
                 : tool === "note"
@@ -1096,6 +1263,8 @@ export default function RoomPage() {
           aria-label="Drawing surface"
           onPointerDown={handleCanvasPointerDown}
           onPointerMove={handleCanvasPointerMove}
+          onPointerEnter={handleCanvasPointerEnter}
+          onPointerLeave={handleCanvasPointerLeave}
           onPointerUp={handleCanvasPointerUp}
           onPointerCancel={handleCanvasPointerCancel}
         />
@@ -1109,7 +1278,7 @@ export default function RoomPage() {
             <article
               key={note.id}
               className={cn(
-                "pointer-events-auto group absolute flex aspect-square w-32 items-start p-4 font-note text-base leading-snug shadow-note transition-transform md:w-40 md:p-5",
+                "pointer-events-auto group absolute flex aspect-square w-40 items-start p-5 font-note text-base leading-snug shadow-note transition-transform",
                 tool === "pan" && "pointer-events-none",
                 `note-${note.color}`
               )}
@@ -1208,22 +1377,48 @@ export default function RoomPage() {
           ))}
         </div>
         )}
+          </div>
         </div>
 
+        {tool === "draw" && (
+          <div
+            ref={brushCursorRef}
+            className={cn(
+              "pointer-events-none absolute z-20 grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-current",
+              isErasing ? "bg-transparent" : "bg-current/10"
+            )}
+            style={{
+              left: 0,
+              top: 0,
+              width: 0,
+              height: 0,
+              opacity: 0,
+              color: isErasing ? "var(--foreground)" : brushColor,
+            }}
+            aria-hidden="true"
+          >
+            {!isErasing && (
+              <span className="font-mono text-xs font-bold leading-none">+</span>
+            )}
+          </div>
+        )}
+
         {/* Zoom controls — bottom left */}
-        <div className="floating-control absolute bottom-5 left-3 flex items-center gap-1 p-1.5 md:bottom-6 md:left-4">
+        <div className="floating-control absolute bottom-20 left-3 flex items-center gap-0 p-0.5 md:bottom-6 md:left-4 md:gap-1 md:p-1.5">
           <Button
             variant="ghost"
             size="icon"
+            className="size-7 md:size-9"
             aria-label="Zoom out"
             onClick={() => setZoom((z) => Math.max(60, z - 10))}
           >
             <ZoomOut />
           </Button>
-          <span className="w-11 text-center text-xs font-semibold">{zoom}%</span>
+          <span className="hidden w-11 text-center text-xs font-semibold md:block">{zoom}%</span>
           <Button
             variant="ghost"
             size="icon"
+            className="size-7 md:size-9"
             aria-label="Zoom in"
             onClick={() => setZoom((z) => Math.min(160, z + 10))}
           >
@@ -1232,7 +1427,7 @@ export default function RoomPage() {
         </div>
 
         {/* Main toolbar — bottom center */}
-        <div className="floating-control absolute bottom-5 left-1/2 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto p-1.5 md:bottom-6">
+        <div className="floating-control absolute bottom-5 left-1/2 flex min-w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto p-1.5 md:bottom-6">
           {(
             [
               ["select", MousePointer2, "Select"],
@@ -1245,9 +1440,17 @@ export default function RoomPage() {
               key={value}
               variant={tool === value ? "toolActive" : "ghost"}
               size="icon"
+              className="shrink-0"
               aria-label={label}
               title={label}
-              onClick={() => setTool(value)}
+              onClick={() => {
+                setTool(value);
+                if (value !== "draw") {
+                  setBrushSizeOpen(false);
+                  setBrushSizePanelPosition(null);
+                  setBrushCursorActive(false);
+                }
+              }}
             >
               <Icon />
             </Button>
@@ -1283,27 +1486,32 @@ export default function RoomPage() {
           </div>
           {tool === "draw" && (
             <>
-              <div className="flex gap-1 px-1" aria-label="Brush size">
-                {brushSizes.map((size) => (
-                  <Button
-                    key={size}
-                    variant={brushThickness === size ? "toolActive" : "ghost"}
-                    size="icon"
-                    className="size-7"
-                    aria-label={`${size}px brush`}
-                    title={`${size}px brush`}
-                    onClick={() => setBrushThickness(size)}
-                  >
-                    <span
-                      className="rounded-full bg-current"
-                      style={{ width: Math.max(4, size + 1), height: Math.max(4, size + 1) }}
-                    />
-                  </Button>
-                ))}
+              <div className="flex items-center gap-1 px-1" aria-label="Brush size">
+                <Button
+                  ref={brushSizeButtonRef}
+                  variant={brushSizeOpen ? "toolActive" : "ghost"}
+                  size="icon"
+                  className="shrink-0"
+                  aria-expanded={brushSizeOpen}
+                  aria-controls="brush-size-panel"
+                  aria-label={`${isErasing ? "Eraser" : "Brush"} size ${brushPercent}%`}
+                  title={`${isErasing ? "Eraser" : "Brush"} size ${brushPercent}%`}
+                  onClick={toggleBrushSize}
+                >
+                  <span
+                    className={cn(
+                      "relative grid place-items-center rounded-full transition-all",
+                      isErasing ? "border-2 border-current" : "bg-current"
+                    )}
+                    style={{ width: brushTipSize, height: brushTipSize }}
+                    aria-hidden="true"
+                  />
+                </Button>
               </div>
               <Button
                 variant={isErasing ? "toolActive" : "ghost"}
                 size="icon"
+                className="shrink-0"
                 aria-label="Eraser"
                 title="Eraser"
                 onClick={() => setIsErasing((active) => !active)}
@@ -1312,12 +1520,13 @@ export default function RoomPage() {
               </Button>
             </>
           )}
-          <Button size="icon" onClick={() => void addNote()} aria-label="Add sticky note">
+          <Button className="shrink-0" size="icon" onClick={() => void addNote()} aria-label="Add sticky note">
             <Plus />
           </Button>
           <Button
             variant="ghost"
             size="icon"
+            className="shrink-0"
             aria-label={showNotes ? "Hide sticky notes" : "Show sticky notes"}
             title={showNotes ? "Hide sticky notes" : "Show sticky notes"}
             onClick={() => setShowNotes((visible) => !visible)}
@@ -1493,6 +1702,37 @@ export default function RoomPage() {
           </Button>
         </form>
       </aside>
+
+      {tool === "draw" && brushSizeOpen && brushSizePanelPosition && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            id="brush-size-panel"
+            className="floating-control fixed z-50 flex -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap px-3 py-2"
+            style={{
+              left: brushSizePanelPosition.left,
+              top: brushSizePanelPosition.top,
+            }}
+            role="group"
+            aria-label="Brush size percentage"
+          >
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={brushPercent}
+              onChange={(event) => setBrushPercent(Number(event.currentTarget.value))}
+              aria-label={`${isErasing ? "Eraser" : "Brush"} size ${brushPercent}%`}
+              aria-valuetext={`${brushPercent}%`}
+              title={`${isErasing ? "Eraser" : "Brush"} size ${brushPercent}%`}
+              className="h-2 w-24 cursor-pointer accent-primary"
+            />
+            <span className="w-8 text-right text-[10px] font-semibold tabular-nums">
+              {brushPercent}%
+            </span>
+          </div>,
+          document.body
+        )}
     </main>
   );
 }
