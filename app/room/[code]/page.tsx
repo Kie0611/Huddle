@@ -1427,7 +1427,7 @@ export default function RoomPage() {
         </div>
 
         {/* Main toolbar — bottom center */}
-        <div className="floating-control absolute bottom-5 left-1/2 flex w-[calc(100%-1.5rem)] max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-0 overflow-x-auto p-1 md:bottom-6 md:w-auto md:max-w-none md:gap-1 md:p-1.5">
+        <div className="floating-control absolute bottom-5 left-1/2 flex w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-0 overflow-x-auto p-1 md:bottom-6 md:w-auto md:max-w-none md:gap-1 md:p-1.5">
           {(
             [
               ["select", MousePointer2, "Select"],
