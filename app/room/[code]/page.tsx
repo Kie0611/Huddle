@@ -1427,7 +1427,7 @@ export default function RoomPage() {
         </div>
 
         {/* Main toolbar — bottom center */}
-        <div className="floating-control absolute bottom-5 left-1/2 flex min-w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto p-1.5 md:bottom-6">
+        <div className="floating-control absolute bottom-5 left-1/2 flex w-[calc(100%-1.5rem)] max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-0 overflow-x-auto p-1 md:bottom-6 md:w-auto md:max-w-none md:gap-1 md:p-1.5">
           {(
             [
               ["select", MousePointer2, "Select"],
@@ -1440,7 +1440,7 @@ export default function RoomPage() {
               key={value}
               variant={tool === value ? "toolActive" : "ghost"}
               size="icon"
-              className="shrink-0"
+              className="size-7 shrink-0 md:size-9"
               aria-label={label}
               title={label}
               onClick={() => {
@@ -1455,9 +1455,9 @@ export default function RoomPage() {
               <Icon />
             </Button>
           ))}
-          <span className="mx-1 h-6 w-px shrink-0 bg-border" />
+          <span className="mx-0.5 h-5 w-px shrink-0 bg-border md:mx-1 md:h-6" />
           <div
-            className="flex gap-1 px-1"
+            className="flex gap-0 px-0.5 md:gap-1 md:px-1"
             aria-label={tool === "draw" ? "Brush color" : "Note color"}
           >
             {(["yellow", "pink", "mint", "blue"] as NoteColor[]).map((c) => (
@@ -1475,7 +1475,7 @@ export default function RoomPage() {
                   }
                 }}
                 className={cn(
-                  "size-5 shrink-0 rounded-full border-2 border-chrome ring-offset-2 ring-offset-chrome transition-transform active:scale-95",
+                  "size-4 shrink-0 rounded-full border-2 border-chrome ring-offset-1 ring-offset-chrome transition-transform active:scale-95 md:size-5 md:ring-offset-2",
                   `swatch-${c}`,
                   (tool === "draw"
                     ? brushColor === brushPalette[c] && !isErasing
@@ -1486,12 +1486,12 @@ export default function RoomPage() {
           </div>
           {tool === "draw" && (
             <>
-              <div className="flex items-center gap-1 px-1" aria-label="Brush size">
+              <div className="flex items-center gap-0 px-0.5 md:gap-1 md:px-1" aria-label="Brush size">
                 <Button
                   ref={brushSizeButtonRef}
                   variant={brushSizeOpen ? "toolActive" : "ghost"}
                   size="icon"
-                  className="shrink-0"
+                  className="size-7 shrink-0 md:size-9"
                   aria-expanded={brushSizeOpen}
                   aria-controls="brush-size-panel"
                   aria-label={`${isErasing ? "Eraser" : "Brush"} size ${brushPercent}%`}
@@ -1511,7 +1511,7 @@ export default function RoomPage() {
               <Button
                 variant={isErasing ? "toolActive" : "ghost"}
                 size="icon"
-                className="shrink-0"
+                className="size-7 shrink-0 md:size-9"
                 aria-label="Eraser"
                 title="Eraser"
                 onClick={() => setIsErasing((active) => !active)}
@@ -1520,13 +1520,13 @@ export default function RoomPage() {
               </Button>
             </>
           )}
-          <Button className="shrink-0" size="icon" onClick={() => void addNote()} aria-label="Add sticky note">
+          <Button className="size-7 shrink-0 md:size-9" size="icon" onClick={() => void addNote()} aria-label="Add sticky note">
             <Plus />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="shrink-0"
+            className="size-7 shrink-0 md:size-9"
             aria-label={showNotes ? "Hide sticky notes" : "Show sticky notes"}
             title={showNotes ? "Hide sticky notes" : "Show sticky notes"}
             onClick={() => setShowNotes((visible) => !visible)}
