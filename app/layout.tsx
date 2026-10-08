@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next"
 import type { Metadata } from "next";
 import { Rubik, Space_Mono, Kalam } from "next/font/google";
 
@@ -38,6 +39,8 @@ export default function RootLayout({
         className={`${rubik.variable} ${spaceMono.variable} ${kalam.variable}`}
       >
         {children}
+        
+         <Analytics/>
       </body>
     </html>
   );
